@@ -1,0 +1,15 @@
+# 你的資料（對話標題、問題文字、設定、你放的圖）——絕不上傳
+data/
+src/data/
+demo/
+*.pdw-backup-*
+settings.pre-install.json
+settings.post-install.sha256
+error.log
+.scan-cache.json
+pending.json
+pending.html
+status.json
+node_modules/
+*.tmp
+Thumbs.db
