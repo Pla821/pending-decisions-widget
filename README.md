@@ -45,7 +45,7 @@
 ## 安裝
 
 ```powershell
-git clone https://github.com/<你的帳號>/pending-decisions-widget.git
+git clone https://github.com/Pla821/pending-decisions-widget.git
 cd pending-decisions-widget
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Autostart
 ```

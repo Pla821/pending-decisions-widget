@@ -45,7 +45,7 @@ This tool collects everything Claude is waiting on in one place:
 ## Install
 
 ```powershell
-git clone https://github.com/<you>/pending-decisions-widget.git
+git clone https://github.com/Pla821/pending-decisions-widget.git
 cd pending-decisions-widget
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Autostart
 ```
