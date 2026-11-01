@@ -83,7 +83,7 @@ public class RowList : Control {
 		for (int i = 0; i < Items.Count; i++) {
 			int y = i * RowHeight - Scroll;
 			if (y + RowHeight < 0 || y > Height) continue;
-			RowItem it = Items[i];
+			RowItem it = Items[i]; if (it == null) continue;
 			Rectangle row = new Rectangle(0, y, Width, RowHeight);
 			if (i == Hover) { using (SolidBrush b = new SolidBrush(HoverBack)) g.FillRectangle(b, row); }
 			using (SolidBrush b = new SolidBrush(it.LabelColor)) { g.FillRectangle(b, 0, y + 10, 4, RowHeight - 20); }
@@ -990,7 +990,10 @@ $script:shooting = $false; $script:shotProc = $null
 $shotTimer = New-Object System.Windows.Forms.Timer
 $shotTimer.Interval = 300
 $shotTimer.Add_Tick({
-	if ($script:shotProc -and -not $script:shotProc.HasExited) { return }
+	if ($script:shotProc -and -not $script:shotProc.HasExited) {
+		if (([DateTime]::Now - $script:shotStart).TotalSeconds -lt 90) { return }
+		try { $script:shotProc.Kill() } catch { } # 截圖小程式卡住超過 90 秒：強制結束，把寵物叫回來
+	}
 	$shotTimer.Stop(); $script:shooting = $false; $script:shotProc = $null
 	$iconForm.Show(); Update-Look; Tray-Update
 })
@@ -1005,7 +1008,8 @@ function Take-Shot { # 把浮窗的所有小視窗先藏起來（才不會拍進
 	$psi.FileName = (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
 	$psi.Arguments = '-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $shotScript + '" -OutDir "' + $out + '"'
 	$psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
-	$script:shotProc = [System.Diagnostics.Process]::Start($psi)
+	$script:shotStart = [DateTime]::Now
+	try { $script:shotProc = [System.Diagnostics.Process]::Start($psi) } catch { $script:shotProc = $null }
 	$shotTimer.Start()
 }
 $cam.Add_MouseUp({ param($s, $e) if ($e.Button -eq 'Left') { Take-Shot } })

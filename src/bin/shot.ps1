@@ -35,7 +35,12 @@ $form.Add_MouseDown({ param($s, $e) if ($e.Button -eq 'Left') { $script:a = $e.L
 $form.Add_MouseMove({ param($s, $e) if ($script:a -and $e.Button -eq 'Left') { $script:b = $e.Location; $form.Invalidate() } })
 $form.Add_MouseUp({ param($s, $e) if ($e.Button -eq 'Left' -and $script:a) { $script:b = $e.Location; $script:save = $true; $form.Close() } })
 $form.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq 'Escape') { $script:save = $false; $form.Close() } })
-[void]$form.ShowDialog()
+$form.KeyPreview = $true
+$form.Add_Shown({ $form.Activate(); $form.Focus() | Out-Null }) # 沒拿到焦點就收不到 Esc，之前就是這樣卡住
+$guard = New-Object System.Windows.Forms.Timer; $guard.Interval = 45000 # 45 秒沒動作自動取消，絕不會一直卡住
+$guard.Add_Tick({ $guard.Stop(); $script:save = $false; $form.Close() }); $guard.Start()
+try { [void]$form.ShowDialog() } catch { $script:save = $false }
+$guard.Stop()
 if ($script:save) {
 	$r = Sel-Rect
 	if ($r.Width -lt 6 -or $r.Height -lt 6) { $r = New-Object System.Drawing.Rectangle(0, 0, $shot.Width, $shot.Height) } # 只點一下＝整個畫面
