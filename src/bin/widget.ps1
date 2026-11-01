@@ -1304,6 +1304,17 @@ $mpOn = New-Object System.Windows.Forms.ToolStripMenuItem '開啟電子雞（餵
 $mpOn.Add_Click({ Pet-Enable $true })
 [void]$menu.Items.Insert(1, $mpOn)
 $menu.Add_Opening({ $mpOn.Visible = -not [bool]$script:set.pet })
+$SkinNames = @{ 'gemini-star@1.png' = 'Gemini（四角星星符號）'; 'chatgpt-knot@1.png' = 'ChatGPT（綠底六環符號）'; 'orange-mascot@1.png' = '橘色吉祥物（Claude 風，動畫）' }
+$mSkin = New-Object System.Windows.Forms.ToolStripMenuItem '換造型（ChatGPT／Gemini 符號／你自己的圖）'
+[void]$menu.Items.Insert(1, $mSkin)
+$menu.Add_Opening({ # 每次開選單時重列：內建造型＋你自己放進去的圖（也可以把圖檔直接拖到小橘身上換）
+	$mSkin.DropDownItems.Clear()
+	foreach ($f in @(Icon-Files)) {
+		$label = if ($SkinNames.ContainsKey($f.Name)) { $SkinNames[$f.Name] } else { [System.IO.Path]::GetFileNameWithoutExtension($f.Name) }
+		$it = $mSkin.DropDownItems.Add($label); $it.Tag = $f.Name; $it.Checked = ($f.Name -eq [string]$script:set.icon)
+		$it.Add_Click({ param($s, $e) $script:set.icon = [string]$s.Tag; Save-Settings; Apply-Icon; Update-Look })
+	}
+})
 $mpi.food.Add_Click({ $panel.Hide(); Toy-Menu 0 }); $mpi.ball.Add_Click({ $panel.Hide(); Toy-Menu 1 }); $mpi.mon.Add_Click({ $panel.Hide(); Mon-Spawn $false })
 
 # ---------- 啟動：每 3 秒讀狀態、每 6 秒叫 node 掃一次所有對話 ----------
