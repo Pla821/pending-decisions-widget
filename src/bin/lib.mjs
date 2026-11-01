@@ -44,7 +44,7 @@ function sessionRoots() {
 	return out;
 }
 let sessionIndex = null;
-export function sessionInfo(cli) { // cliSessionId → { local, title, archived }；找不到回傳 null
+export function sessionInfo(cli) { // cliSessionId → { local, title, archived, model（桌面版現在設定的模型） }；找不到回傳 null
 	if (!sessionIndex) {
 		sessionIndex = new Map();
 		for (const root of sessionRoots()) {
@@ -59,7 +59,7 @@ export function sessionInfo(cli) { // cliSessionId → { local, title, archived 
 					if (!ent.name.startsWith('local_') || !ent.name.endsWith('.json')) { continue; }
 					const j = readJson(p, null);
 					if (j && j.cliSessionId) {
-						sessionIndex.set(j.cliSessionId, { local: j.sessionId || ent.name.replace('.json', ''), title: j.title || '', archived: !!j.isArchived });
+						sessionIndex.set(j.cliSessionId, { local: j.sessionId || ent.name.replace('.json', ''), title: j.title || '', archived: !!j.isArchived, model: String(j.model || '') });
 					}
 				}
 			}
@@ -160,7 +160,7 @@ function card(it) {
 	const qs = recap + (it.kind === 'permission' ? '<div class="q"><p>需要你的允許：' + esc(it.tool || '工具') + '</p>' + (it.detail ? '<pre class="code">' + esc(it.detail) + '</pre>' : '') + '</div>' : (it.questions || []).map((q) => '<div class="q"><p>' + esc(q.question) + '</p>' + (q.options && q.options.length ? '<ul class="opts">' + q.options.map((o) => '<li>' + esc(o) + '</li>').join('') + '</ul>' : '') + '</div>').join(''));
 	const pending = it.status === 'pending';
 	const chip = pending
-		? '<span class="chip warn">' + (it.kind === 'permission' ? '等你允許' : it.kind === 'wrapup' ? '等你決定' : '等你回答') + ' · <time data-wait="' + it.at + '"></time></span>'
+		? '<span class="chip warn">' + (it.kind === 'permission' ? '等你允許' : it.kind === 'wrapup' ? '等你決定' : it.kind === 'fable' ? 'Fable 提醒' : '等你回答') + ' · <time data-wait="' + it.at + '"></time></span>'
 		: it.status === 'answered' ? '<span class="chip ok">已回答</span>' : '<span class="chip">已取消</span>';
 	return '<article class="card ' + esc(it.status) + '"><header><h2>' + who + '</h2>' + chip + '</header>'
 		+ '<div class="meta">' + esc(clock(it.at)) + (it.cwd ? ' · <span class="cwd">' + esc(it.cwd) + '</span>' : '') + '</div>' + qs

@@ -10,7 +10,8 @@
 .PARAMETER NoAutostart   不要開機自動啟動（也不問）。
 .PARAMETER ReplaceLegacy 同時拿掉「沒打包的舊版 decision-log.mjs」hook，避免重複通知。
 .PARAMETER NoLaunch      裝完不要馬上啟動浮窗。
-.PARAMETER Purge         搭配 -Uninstall：連資料（對話清單、你放的圖、設定）一起刪。
+.PARAMETER UsageGuard   額度警示：把 Claude Code 狀態列接到 usage-feed.mjs，用量 ≥90%／≥98% 時浮窗提醒（只有 Pro／Max 帳號的狀態列才有用量數字；已有自己的狀態列就不動）。
+.PARAMETER Purge        搭配 -Uninstall：連資料（對話清單、你放的圖、設定）一起刪。
 .PARAMETER ClaudeDir     Claude 設定資料夾，預設 %USERPROFILE%\.claude。
 .PARAMETER InstallDir    安裝位置，預設 <ClaudeDir>\pending-decisions。
 .PARAMETER StartupDir    開機自動啟動捷徑放哪，預設 Windows 的「啟動」資料夾（測試用）。
@@ -20,7 +21,7 @@
 #>
 [CmdletBinding()]
 param(
-	[switch]$Uninstall, [switch]$Autostart, [switch]$NoAutostart, [switch]$ReplaceLegacy, [switch]$NoLaunch, [switch]$Purge,
+	[switch]$Uninstall, [switch]$Autostart, [switch]$NoAutostart, [switch]$ReplaceLegacy, [switch]$NoLaunch, [switch]$Purge, [switch]$UsageGuard,
 	[string]$ClaudeDir = (Join-Path $env:USERPROFILE '.claude'),
 	[string]$InstallDir = '',
 	[string]$StartupDir = [Environment]::GetFolderPath('Startup')
@@ -57,6 +58,7 @@ if ($Uninstall) {
 			Copy-Item $PreFile $Settings -Force; Say '  settings.json 自安裝後沒被改過：已原封不動還原成安裝前的樣子'
 		} else {
 			$r = & node $HooksJs remove $Settings
+			[void](& node $HooksJs statusline-remove $Settings)
 			Say "  hook：$r（你安裝後改過 settings.json，所以只精準拿掉本工具的 hook，其餘保留）"
 		}
 	}
@@ -104,6 +106,10 @@ $args2 = @($HooksJs, 'add', $Settings, $LogJs); if ($ReplaceLegacy) { $args2 += 
 $r = & node @args2
 if ($LASTEXITCODE -ne 0) { throw "合併 settings.json 失敗：$r" }
 Say "  hook 已合併：$r"
+if ($UsageGuard) { # 額度警示：把狀態列接到 usage-feed.mjs（用量 ≥90% 提醒只做明確要的事、≥98% 提醒全面停止）；你已經有自己的狀態列就不動它
+	$sl = & node $HooksJs statusline-add $Settings (Join-Path $InstallDir 'bin\usage-feed.mjs') | ConvertFrom-Json
+	if ($sl.ok) { Say '  額度警示：已接上狀態列' } else { Say '  額度警示：你已經有自己的狀態列，沒有動它（可以在浮窗右鍵「回報額度 %」手動填）' }
+}
 (Get-FileHash $Settings -Algorithm SHA256).Hash | Set-Content $PostFile -Encoding ASCII
 $chk = & node $HooksJs check $Settings | ConvertFrom-Json
 if ($chk.legacy -gt 0) { Say "  ⚠ 偵測到 $($chk.legacy) 個舊版 hook（沒打包的 decision-log.mjs），會造成重複通知；加 -ReplaceLegacy 再跑一次可換掉它們。" }

@@ -63,6 +63,13 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\pending-decis
 
 Removes only this tool's hooks, shortcut and program files. If `settings.json` hasn't changed since install it is **restored byte-for-byte**. Your data (`data\`) is kept unless you add `-Purge`.
 
+## Extras (v0.2)
+
+- **Tabs** above the list: *Pending* / *Interrupted* / *Recent sessions* / *Projects* / *Recent files* / *Folders*.
+- **Interrupted sessions**: a session whose transcript ends mid-work (tool call, tool result, your last message unanswered, or a cut-off reply) and has been silent for 5+ minutes is listed with where it stopped. One click opens it and copies a "resume from where you stopped" prompt to the clipboard — the widget cannot send messages for you, so you paste and send.
+- **Usage guard** (optional): `install.ps1 -UsageGuard` feeds the Claude Code status line into `usage-feed.mjs` (an existing status line is left alone). At ≥90% usage the widget reminds you to do only what was explicitly asked; at ≥98% to stop everything. Usage numbers only exist for Pro/Max status lines; otherwise use right-click → report usage manually. It also flags sessions running the Fable model, and stops once you have switched away.
+- **Walking icon** and a **tamagotchi-style pet** (Settings → tick the boxes; right-click → Pet: feed, play, pat, sleep, status, rename).
+
 ## Configuration
 
 Most things live in the widget's Settings window. Advanced options in `~\.claude\pending-decisions\config.json`:
