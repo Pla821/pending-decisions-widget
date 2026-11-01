@@ -233,7 +233,7 @@ $px = if ($null -ne $script:set.x) { [int]$script:set.x } else { $wa.Right - $Ic
 $py = if ($null -ne $script:set.y) { [int]$script:set.y } else { $wa.Bottom - $IconBox - 60 }
 $iconForm.Location = New-Object System.Drawing.Point($px, $py)
 $script:frames = @(); $script:idleFrames = @(); $script:badgeShown = -1; $script:fIdx = 0; $script:fCache = @{}
-$script:curBmp = $null; $script:iconAlpha = 255; $script:moving = $false; $script:fxUntil = 0
+$script:curBmp = $null; $script:iconAlpha = 255; $script:moving = $false; $script:fxUntil = 0; $script:fxKind = ''
 function Pet-Asleep { [bool]($script:set.pet -and $script:pet.sleeping) }
 function Pet-Fx-On { [Environment]::TickCount -lt $script:fxUntil }
 
@@ -251,13 +251,29 @@ function Load-Frames([string]$path) { # 動畫＝一串圖：名稱@1.png…（�
 	if ($r.active.Count -eq 0) { $r.active = @(, (Load-Img $path)) }
 	return $r
 }
-function Build-Frame($img, [int]$count) { # 一格圖＋右上角紅色數字
+function Build-Frame($img, [int]$count, [string]$ov = '', [int]$lvl = 4, [int]$fi = 0) { # 一格圖＋右上角紅色數字＋（電子雞）成長大小、皇冠、動作小圖
 	$bmp = New-Object System.Drawing.Bitmap($IconBox, $IconBox, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
 	$g = [System.Drawing.Graphics]::FromImage($bmp); $g.SmoothingMode = 'AntiAlias'; $g.InterpolationMode = 'HighQualityBicubic'; $g.TextRenderingHint = 'AntiAliasGridFit'
 	$g.Clear([System.Drawing.Color]::Transparent)
-	$size = 74
+	$full = 74
+	$size = [int]($full * @(0.74, 0.84, 0.92, 1.0, 1.0)[[Math]::Min(4, [Math]::Max(0, $lvl - 1))]) # 越養越大
 	$ratio = [Math]::Min($size / $img.Width, $size / $img.Height); $w = [int]($img.Width * $ratio); $h = [int]($img.Height * $ratio)
-	$g.DrawImage($img, 2 + [int](($size - $w) / 2), $IconBox - $size - 2 + [int](($size - $h) / 2), $w, $h)
+	$cx = 2 + $full / 2; $topY = $IconBox - 2 - $h
+	$g.DrawImage($img, 2 + [int](($full - $w) / 2), $topY, $w, $h)
+	if ($lvl -ge 5) { # 最高級：頭上戴皇冠
+		$cr = [System.Drawing.PointF[]]@((New-Object System.Drawing.PointF(($cx - 12), $topY)), (New-Object System.Drawing.PointF(($cx - 12), ($topY - 12))), (New-Object System.Drawing.PointF(($cx - 6), ($topY - 5))), (New-Object System.Drawing.PointF($cx, ($topY - 15))), (New-Object System.Drawing.PointF(($cx + 6), ($topY - 5))), (New-Object System.Drawing.PointF(($cx + 12), ($topY - 12))), (New-Object System.Drawing.PointF(($cx + 12), $topY)))
+		$g.FillPolygon((New-Object System.Drawing.SolidBrush((RGB '#FFC933'))), $cr)
+	}
+	switch ($ov) {
+		'heart' { for ($k = 0; $k -lt 3; $k++) { $hy = $topY - 4 - (($fi * 5 + $k * 11) % 28); $g.FillPath((New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(230, 232, 64, 122))), (Heart-Path (12 + $k * 22) $hy 6)) } }
+		'eat' { $s = 1.0 - ($fi % 6) * 0.14; $ox = $cx - 38; $oy = $topY + 22
+			$pts = [System.Drawing.PointF[]]@((New-Object System.Drawing.PointF($ox, ($oy - 10 * $s))), (New-Object System.Drawing.PointF(($ox + 11 * $s), ($oy + 8 * $s))), (New-Object System.Drawing.PointF(($ox - 11 * $s), ($oy + 8 * $s))))
+			$g.FillPolygon([System.Drawing.Brushes]::White, $pts); $g.FillRectangle((New-Object System.Drawing.SolidBrush((RGB '#2B2F36'))), ($ox - 5 * $s), ($oy + 1 * $s), (10 * $s), (7 * $s)) }
+		'play' { $bx = 8 + ($fi % 6) * 11; $by = $topY + 8 - [Math]::Abs([Math]::Sin($fi * 0.9)) * 22
+			$g.FillEllipse((New-Object System.Drawing.SolidBrush((RGB '#E5533D'))), $bx, $by, 14, 14); $g.DrawArc((New-Object System.Drawing.Pen([System.Drawing.Color]::White, 1.5)), ($bx + 3), ($by + 3), 8, 8, 200, 70) }
+		'zzz' { $b = ($fi % 2) * 3; $zc = New-Object System.Drawing.SolidBrush((RGB '#9DB8E8')); $g.DrawString('z', (Font 10 $true), $zc, ($cx + 16), ($topY - 6 - $b)); $g.DrawString('Z', (Font 14 $true), $zc, ($cx + 26), ($topY - 22 - $b)) }
+		'sad' { $g.FillEllipse((New-Object System.Drawing.SolidBrush((RGB '#6DB3F2'))), ($cx + 18), ($topY + 6 + ($fi % 2) * 2), 8, 12) }
+	}
 	if ($count -gt 0) {
 		$d = 34; $bx = $IconBox - $d - 1; $by = 1
 		$g.FillEllipse([System.Drawing.Brushes]::White, ($bx - 2), ($by - 2), ($d + 4), ($d + 4))
@@ -273,8 +289,9 @@ function Show-Frame { # 顯示目前這一格（算過的存起來；數字或�
 	$useIdle = ($script:badgeShown -le 0 -and -not $script:moving -and -not (Pet-Fx-On) -and $script:idleFrames.Count -gt 0) # 沒事又沒在走＝待機動作；有事或在走＝跳跳動作
 	$seq = if ($useIdle) { $script:idleFrames } else { $script:frames }
 	if ($seq.Count -eq 0) { return }
-	$i = $script:fIdx % $seq.Count; $key = '{0}|{1}|{2}' -f $(if ($useIdle) { 'i' } else { 'a' }), $i, $script:badgeShown
-	if (-not $script:fCache.ContainsKey($key)) { $script:fCache[$key] = Build-Frame $seq[$i] ([Math]::Max(0, $script:badgeShown)) }
+	$i = $script:fIdx % $seq.Count; $ov = Pet-Overlay; $lv = Pet-Level
+	$key = '{0}|{1}|{2}|{3}|{4}' -f $(if ($useIdle) { 'i' } else { 'a' }), $i, $script:badgeShown, $ov, $lv
+	if (-not $script:fCache.ContainsKey($key)) { $script:fCache[$key] = Build-Frame $seq[$i] ([Math]::Max(0, $script:badgeShown)) $ov $lv $script:fIdx }
 	$script:curBmp = $script:fCache[$key]
 	if (-not $Snap) { $iconForm.SetSprite($script:curBmp, [byte]$script:iconAlpha) }
 }
@@ -290,7 +307,7 @@ function Apply-Icon {
 	if (-not $p) { return }
 	try { $r = Load-Frames $p } catch { return }
 	$script:frames = @($r.active); $script:idleFrames = @($r.idle); $script:fIdx = 0; $script:fCache = @{}
-	if (-not $Snap -and ($script:frames.Count -gt 1 -or $script:idleFrames.Count -gt 1)) { $anim.Start() } else { $anim.Stop() }
+	if (-not $Snap -and ($script:frames.Count -gt 1 -or $script:idleFrames.Count -gt 1 -or $script:set.pet)) { $anim.Start() } else { $anim.Stop() }
 	Compose-Icon ([Math]::Max(0, $script:badgeShown))
 }
 $anim = New-Object System.Windows.Forms.Timer
@@ -397,6 +414,7 @@ function Update-Look {
 	if ($n -ne $script:badgeShown) { Compose-Icon $n } else { Show-Frame }
 	if ($Snap) { return }
 	if ($n -eq 0 -and $script:set.hideWhenZero) { if ($iconForm.Visible) { $iconForm.Hide() } } else { if (-not $iconForm.Visible) { $iconForm.Show() } }
+	Tray-Update
 }
 function Empty-Messages { # 空狀態與錯誤的文案
 	if ($script:tab -eq 'broken' -and $script:recent) { return @('沒有中斷的對話', '最近的對話不是正常回完，就是還在跑；有斷線的會出現在這裡。') }
@@ -523,6 +541,7 @@ function Refresh-Data {
 		if ($script:set.sound) { try { [System.Media.SystemSounds]::Exclamation.Play() } catch { } }
 		$script:shakeStep = 0; $script:shakeX = $iconForm.Left; $shake.Start()
 	}
+	if ($n -lt $script:lastCount -and $script:set.pet) { Pet-Gain (6 * ($script:lastCount - $n)) '處理好了！' }
 	$script:lastCount = $n
 	Update-Look
 	if ($panel.Visible) { Show-Panel }
@@ -741,8 +760,8 @@ $iconForm.Add_DragEnter($onEnter); $iconForm.Add_DragDrop($onDrop)
 # ---------- 電子雞（設定裡勾「養電子雞」才啟用）：飽足／心情／精神三個數字會隨時間往下掉，右鍵「電子雞」選單餵食、陪玩、摸摸、哄睡覺 ----------
 $PetFile = Join-Path $DataDir 'pet.json'
 function Now-Sec { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
-$script:pet = @{ name = '小橘'; hunger = 80.0; mood = 80.0; energy = 90.0; sleeping = $false; born = (Now-Sec); last = (Now-Sec); fed = 0; played = 0 }
-try { if (Test-Path $PetFile) { $pj = Get-Content $PetFile -Raw -Encoding UTF8 | ConvertFrom-Json; foreach ($k in @('name', 'hunger', 'mood', 'energy', 'sleeping', 'born', 'last', 'fed', 'played')) { if ($null -ne $pj.$k) { $script:pet[$k] = $pj.$k } } } } catch { }
+$script:pet = @{ name = '小橘'; hunger = 80.0; mood = 80.0; energy = 90.0; sleeping = $false; born = (Now-Sec); last = (Now-Sec); fed = 0; played = 0; xp = 0 }
+try { if (Test-Path $PetFile) { $pj = Get-Content $PetFile -Raw -Encoding UTF8 | ConvertFrom-Json; foreach ($k in @('name', 'hunger', 'mood', 'energy', 'sleeping', 'born', 'last', 'fed', 'played', 'xp')) { if ($null -ne $pj.$k) { $script:pet[$k] = $pj.$k } } } } catch { }
 function Save-Pet { try { ($script:pet | ConvertTo-Json) | Set-Content -Path $PetFile -Encoding UTF8 } catch { } }
 function Pet-Clamp([double]$v) { [Math]::Max(0.0, [Math]::Min(100.0, $v)) }
 $script:petSaid = @{}
@@ -770,7 +789,21 @@ function Pet-Say([string]$text, [int]$ms = 5000) {
 	if (-not $petBubble.Visible) { $petBubble.Show() }
 	$petHide.Stop(); $petHide.Interval = $ms; $petHide.Start()
 }
-function Pet-Fx([int]$ms) { $script:fxUntil = [Environment]::TickCount + $ms; Set-AnimRate; Show-Frame } # 開心：跳跳動作一陣子
+function Pet-Fx([int]$ms, [string]$kind = 'heart') { $script:fxKind = $kind; $script:fxUntil = [Environment]::TickCount + $ms; Set-AnimRate; Show-Frame }
+function Pet-Overlay { # 牠身上現在要畫什麼：做動作時是動作小圖；睡覺 zzz；餓了流汗
+	if (-not $script:set.pet) { return '' }
+	if (Pet-Fx-On) { return [string]$script:fxKind }
+	if ($script:pet.sleeping) { return 'zzz' }
+	if ([double]$script:pet.hunger -lt 30) { return 'sad' }
+	return ''
+}
+function Pet-Level { if (-not $script:set.pet) { return 4 }; $l = 1; foreach ($th in @(40, 120, 260, 500)) { if ([int]$script:pet.xp -ge $th) { $l++ } }; return $l }
+function Pet-Stage([int]$l) { @('蛋寶寶', '小橘', '少年橘', '大橘', '橘王')[$l - 1] }
+function Pet-Gain([int]$n, [string]$why = '') { # 加經驗；升級時會變大（最高級戴皇冠）
+	$before = Pet-Level; $script:pet.xp = [int]$script:pet.xp + $n; $after = Pet-Level; Save-Pet
+	if ($after -gt $before) { Pet-Fx 6000 'heart'; Pet-Say ('升級了！Lv.{0} {1}' -f $after, (Pet-Stage $after)) 7000 }
+	elseif ($why) { Pet-Say ('{0}　經驗 +{1}' -f $why, $n) 4000 }
+} # 開心：跳跳動作一陣子
 function Pet-Refresh { Save-Pet; Update-Look; Set-AnimRate; Show-Frame }
 function Pet-Bar([double]$v) { $n = [int][Math]::Round($v / 10); (('■' * $n) + ('□' * (10 - $n))) + (' {0}%' -f [int]$v) }
 function Pet-Decay([double]$mins) {
@@ -784,18 +817,18 @@ function Pet-Feed {
 	if ($script:pet.sleeping) { Pet-Say 'Zzz…（睡著了，先別吵牠）'; return }
 	if ([double]$script:pet.hunger -ge 95) { Pet-Say '吃不下了，肚子圓滾滾～'; return }
 	$script:pet.hunger = Pet-Clamp ([double]$script:pet.hunger + 35); $script:pet.mood = Pet-Clamp ([double]$script:pet.mood + 3); $script:pet.fed = [int]$script:pet.fed + 1
-	Pet-Refresh; Pet-Fx 2500; Pet-Say '好好吃！謝謝～'
+	Pet-Refresh; Pet-Fx 2500 'eat'; Pet-Say '好好吃！謝謝～' 3000; Pet-Gain 5
 }
 function Pet-Play {
 	if ($script:pet.sleeping) { Pet-Say 'Zzz…（睡著了，先別吵牠）'; return }
 	if ([double]$script:pet.energy -lt 15) { Pet-Say '太累了…想睡覺…'; return }
 	$script:pet.mood = Pet-Clamp ([double]$script:pet.mood + 25); $script:pet.energy = Pet-Clamp ([double]$script:pet.energy - 12); $script:pet.hunger = Pet-Clamp ([double]$script:pet.hunger - 6); $script:pet.played = [int]$script:pet.played + 1
-	Pet-Refresh; Pet-Fx 5000; Pet-Say '耶！好好玩！再來再來～'
+	Pet-Refresh; Pet-Fx 5000 'play'; Pet-Say '耶！好好玩！再來再來～' 3000; Pet-Gain 8
 }
 function Pet-Pat {
 	if ($script:pet.sleeping) { Pet-Wake '嗯…被你摸醒了'; return }
 	$script:pet.mood = Pet-Clamp ([double]$script:pet.mood + 8)
-	Pet-Refresh; Pet-Fx 1500; Pet-Say '呼嚕嚕～♥'
+	Pet-Refresh; Pet-Fx 2500 'heart'; Pet-Say '呼嚕嚕～♥' 2500; Pet-Gain 1
 }
 function Pet-ToggleSleep {
 	if ($script:pet.sleeping) { Pet-Wake '早安！' }
@@ -804,7 +837,8 @@ function Pet-ToggleSleep {
 function Pet-Status {
 	$days = [int](((Now-Sec) - [double]$script:pet.born) / 86400) + 1
 	$st = if ($script:pet.sleeping) { '（睡覺中）' } else { '' }
-	Pet-Say ("{0} · 第 {1} 天 {2}`n飽足  {3}`n心情  {4}`n精神  {5}`n吃過 {6} 次、玩過 {7} 次" -f $script:pet.name, $days, $st, (Pet-Bar ([double]$script:pet.hunger)), (Pet-Bar ([double]$script:pet.mood)), (Pet-Bar ([double]$script:pet.energy)), [int]$script:pet.fed, [int]$script:pet.played) 9000
+	$lv = Pet-Level; $nx = @(40, 120, 260, 500, 0)[$lv - 1]; $xpLine = if ($nx -gt 0) { '經驗 {0}/{1}' -f [int]$script:pet.xp, $nx } else { '經驗 {0}（已滿級）' -f [int]$script:pet.xp }
+	Pet-Say ("{0} Lv.{8} {9} · 第 {1} 天 {2}`n{10}`n飽足  {3}`n心情  {4}`n精神  {5}`n吃過 {6} 次、玩過 {7} 次" -f $script:pet.name, $days, $st, (Pet-Bar ([double]$script:pet.hunger)), (Pet-Bar ([double]$script:pet.mood)), (Pet-Bar ([double]$script:pet.energy)), [int]$script:pet.fed, [int]$script:pet.played, $lv, (Pet-Stage $lv), $xpLine) 9000
 }
 function Pet-Rename {
 	Add-Type -AssemblyName Microsoft.VisualBasic
@@ -829,6 +863,108 @@ function Pet-Tick { # 每 30 秒一次：照過了多久把數字往下掉（關
 $petTimer = New-Object System.Windows.Forms.Timer
 $petTimer.Interval = 30000
 $petTimer.Add_Tick({ Pet-Tick })
+
+# ---------- 桌面上的小道具（電子雞開著才有）：飯糰＝餵食、皮球＝陪玩、愛心＝摸摸、月亮＝睡覺／叫醒；點一下就做，不用開選單 ----------
+$TrayCell = 38; $TrayGap = 4; $TraySize = $TrayCell * 2 + $TrayGap
+function Heart-Path([single]$cx, [single]$cy, [single]$s) {
+	$gp = New-Object System.Drawing.Drawing2D.GraphicsPath
+	$gp.AddBezier($cx, ($cy + $s * 0.9), ($cx - $s * 1.6), ($cy - $s * 0.1), ($cx - $s * 0.8), ($cy - $s * 1.3), $cx, ($cy - $s * 0.45))
+	$gp.AddBezier($cx, ($cy - $s * 0.45), ($cx + $s * 0.8), ($cy - $s * 1.3), ($cx + $s * 1.6), ($cy - $s * 0.1), $cx, ($cy + $s * 0.9))
+	return $gp
+}
+$script:histFile = $null; $script:weekly = $null; $script:weeklyAt = -999999
+function Weekly-Info { # → @{ pct; live }：每週用量 %。狀態列餵的（即時）優先；沒有就用 Claude 桌面版自己記的最近一筆（12 小時內，可能慢一點，畫面上會加 ~）
+	try {
+		$nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+		if (Test-Path $UsageFile) {
+			$u = (Get-Content $UsageFile -Raw -Encoding UTF8) | ConvertFrom-Json
+			$w = $u.seven_day
+			if ($w -and $null -ne $w.pct -and (($nowMs - [double]$u.at) -lt 6 * 3600000) -and -not ($w.resets_at -and ([double]$w.resets_at * 1000) -lt $nowMs)) { return @{ pct = [double]$w.pct; live = $true } }
+		}
+		if (-not $script:histFile) { $base = Join-Path $env:LOCALAPPDATA 'Claude-Data'; if (Test-Path $base) { $script:histFile = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'plan-usage-history.json' } | Where-Object { Test-Path $_ } | Select-Object -First 1 } }
+		if ($script:histFile) {
+			$h = (Get-Content $script:histFile -Raw -Encoding UTF8) | ConvertFrom-Json
+			$s = @($h.samples | Where-Object { $null -ne $_.u.sd }) | Select-Object -Last 1
+			if ($s -and ($nowMs - [double]$s.t) -lt 12 * 3600000) { return @{ pct = [double]$s.u.sd; live = $false } }
+		}
+	} catch { }
+	return $null
+}
+$PillH = 26
+function Build-Pill([string]$pill, [double]$pct) { # 小小一條「週 84%」（綠／黃／紅）
+	$bmp = New-Object System.Drawing.Bitmap($TraySize, $PillH, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+	$g = [System.Drawing.Graphics]::FromImage($bmp); $g.SmoothingMode = 'AntiAlias'; $g.TextRenderingHint = 'AntiAliasGridFit'; $g.Clear([System.Drawing.Color]::Transparent)
+	$col = if ($pct -ge 90) { '#D94A3A' } elseif ($pct -ge 70) { '#D9962B' } else { '#2F7D4F' }
+	$gp = Rounded-Path ($TraySize - 1) ($PillH - 1) 12
+	$g.FillPath((New-Object System.Drawing.SolidBrush((RGB $col))), $gp)
+	$sf = New-Object System.Drawing.StringFormat; $sf.Alignment = 'Center'; $sf.LineAlignment = 'Center'
+	$g.DrawString($pill, $FontTitle, [System.Drawing.Brushes]::White, (New-Object System.Drawing.RectangleF(0, 0, $TraySize, $PillH)), $sf)
+	$g.Dispose(); return $bmp
+}
+function Build-Item([int]$i) { # 想要的東西：0 飯糰（肚子餓時才出現）、1 皮球（無聊時才出現）
+	$bmp = New-Object System.Drawing.Bitmap($TrayCell, $TrayCell, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+	$g = [System.Drawing.Graphics]::FromImage($bmp); $g.SmoothingMode = 'AntiAlias'; $g.Clear([System.Drawing.Color]::Transparent)
+	$bg = if ($i -eq 0) { '#FFF1D6' } else { '#FFE3DD' }
+	$g.FillEllipse((New-Object System.Drawing.SolidBrush((RGB $bg))), 1, 1, ($TrayCell - 2), ($TrayCell - 2))
+	$g.DrawEllipse((New-Object System.Drawing.Pen([System.Drawing.Color]::White, 2)), 2, 2, ($TrayCell - 4), ($TrayCell - 4))
+	$cx = $TrayCell / 2; $cy = $TrayCell / 2
+	if ($i -eq 0) {
+		$pts = [System.Drawing.PointF[]]@((New-Object System.Drawing.PointF($cx, ($cy - 11))), (New-Object System.Drawing.PointF(($cx + 12), ($cy + 8))), (New-Object System.Drawing.PointF(($cx - 12), ($cy + 8))))
+		$pen = New-Object System.Drawing.Pen([System.Drawing.Color]::White, 7); $pen.LineJoin = 'Round'
+		$g.DrawPolygon($pen, $pts); $g.FillPolygon([System.Drawing.Brushes]::White, $pts)
+		$g.FillRectangle((New-Object System.Drawing.SolidBrush((RGB '#2B2F36'))), ($cx - 6), ($cy + 2), 12, 8)
+	} else {
+		$g.FillEllipse((New-Object System.Drawing.SolidBrush((RGB '#E5533D'))), ($cx - 12), ($cy - 12), 24, 24)
+		$g.DrawArc((New-Object System.Drawing.Pen([System.Drawing.Color]::White, 2.5)), ($cx - 8), ($cy - 8), 16, 16, 200, 70)
+		$g.DrawLine((New-Object System.Drawing.Pen((RGB '#B63A28'), 1.5)), ($cx - 12), $cy, ($cx + 12), $cy)
+	}
+	$g.Dispose(); return $bmp
+}
+$tray = New-Object PopForm # 週用量小條（不能點，純顯示）
+$tray.NoActivate = $true; $tray.Shadow = $false; $tray.Layered = $true
+$tray.FormBorderStyle = 'None'; $tray.TopMost = $true; $tray.ShowInTaskbar = $false; $tray.StartPosition = 'Manual'; $tray.Size = New-Object System.Drawing.Size($TraySize, $PillH)
+$item = New-Object PopForm # 牠想要的東西：點一下就給牠
+$item.NoActivate = $true; $item.Shadow = $false; $item.Layered = $true
+$item.FormBorderStyle = 'None'; $item.TopMost = $true; $item.ShowInTaskbar = $false; $item.StartPosition = 'Manual'; $item.Size = New-Object System.Drawing.Size($TrayCell, $TrayCell); $item.Cursor = 'Hand'
+$script:trayKey = ''; $script:trayBmp = $null; $script:itemKind = -1; $script:itemBmps = @{}
+function Place-Tray {
+	$wa2 = [System.Windows.Forms.Screen]::FromControl($iconForm).WorkingArea
+	$left = $iconForm.Left - 2; if ($left - $TraySize - $TrayCell - 8 -lt $wa2.Left) { $left = $iconForm.Right + $TraySize + $TrayCell + 8 } # 左邊放不下就放右邊
+	$ix = $left - $TrayCell - 4; $iy = $iconForm.Bottom - $TrayCell - 10
+	$item.Location = New-Object System.Drawing.Point($ix, $iy)
+	$tx = $(if ($item.Visible) { $ix } else { $left }) - $TraySize - 4
+	$tray.Location = New-Object System.Drawing.Point($tx, ($iconForm.Bottom - $PillH - 16))
+}
+function Tray-Update { # 每次畫面更新時：週用量小條、還有牠現在想要什麼（餓了才出飯糰、無聊才出皮球；沒事桌面上就只有牠）
+	if ($Snap -or -not $tray) { return }
+	if ([Environment]::TickCount - $script:weeklyAt -gt 30000) { $script:weekly = Weekly-Info; $script:weeklyAt = [Environment]::TickCount }
+	$shown = [bool]$iconForm.Visible
+	$pill = ''; $pct = 0.0
+	if ($script:weekly) { $pct = [double]$script:weekly.pct; $pill = ('{0}週 {1}%' -f $(if ($script:weekly.live) { '' } else { '~' }), [int][Math]::Round($pct)) }
+	if ($shown -and $pill) {
+		$key = '{0}|{1}' -f $pill, [int]($pct / 10)
+		if ($key -ne $script:trayKey -or -not $script:trayBmp) { $script:trayKey = $key; $script:trayBmp = Build-Pill $pill $pct }
+		if (-not $tray.Visible) { $tray.Show() }
+		$tray.SetSprite($script:trayBmp, [byte]225)
+	} elseif ($tray.Visible) { $tray.Hide() }
+	$want = -1
+	if ($shown -and $script:set.pet -and -not $script:pet.sleeping) { if ([double]$script:pet.hunger -lt 45) { $want = 0 } elseif ([double]$script:pet.mood -lt 40 -and [double]$script:pet.energy -ge 15) { $want = 1 } }
+	if ($want -ge 0) {
+		if (-not $script:itemBmps.ContainsKey($want)) { $script:itemBmps[$want] = Build-Item $want }
+		$script:itemKind = $want
+		if (-not $item.Visible) { $item.Show() }
+		$item.SetSprite($script:itemBmps[$want], [byte]255)
+	} elseif ($item.Visible) { $item.Hide(); $script:itemKind = -1 }
+	Place-Tray
+}
+$item.Add_MouseUp({
+	param($s, $e)
+	if ($e.Button -ne 'Left') { return }
+	$panel.Hide()
+	if ($script:itemKind -eq 0) { Pet-Feed } elseif ($script:itemKind -eq 1) { Pet-Play }
+	Tray-Update
+})
+$iconForm.Add_LocationChanged({ if ($tray.Visible -or $item.Visible) { Place-Tray } })
 
 # ---------- 啟動：每 3 秒讀狀態、每 6 秒叫 node 掃一次所有對話 ----------
 $script:scanProc = $null
@@ -895,6 +1031,6 @@ $timer.Start()
 $petTimer.Start()
 if ($script:set.walk) { Go-Home }
 $walk.Start()
-$iconForm.Add_FormClosed({ if ($script:set.pet) { Save-Pet }; $panel.Close(); $bubble.Close(); $petBubble.Close() })
+$iconForm.Add_FormClosed({ if ($script:set.pet) { Save-Pet }; $panel.Close(); $bubble.Close(); $petBubble.Close(); $tray.Close() })
 [System.Windows.Forms.Application]::Run($iconForm)
 $mutex.ReleaseMutex()
