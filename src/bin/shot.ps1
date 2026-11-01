@@ -48,7 +48,13 @@ if ($script:save) {
 	New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 	$file = Join-Path $OutDir ('截圖_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.png')
 	$crop.Save($file, [System.Drawing.Imaging.ImageFormat]::Png)
-	try { [System.Windows.Forms.Clipboard]::SetImage($crop) } catch { }
+	try { # 剪貼簿同時放「圖」「PNG」「檔案」三種格式並且在程式結束後保留，貼到 Claude 對話框、聊天軟體、小畫家、檔案總管都行
+		$d = New-Object System.Windows.Forms.DataObject
+		$d.SetImage($crop)
+		$ms = New-Object System.IO.MemoryStream; $crop.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); $d.SetData('PNG', $false, $ms)
+		$fl = New-Object System.Collections.Specialized.StringCollection; [void]$fl.Add($file); $d.SetFileDropList($fl)
+		[System.Windows.Forms.Clipboard]::SetDataObject($d, $true, 10, 100)
+	} catch { try { [System.Windows.Forms.Clipboard]::SetImage($crop) } catch { } }
 	$t = New-Object System.Windows.Forms.Form
 	$t.FormBorderStyle = 'None'; $t.StartPosition = 'CenterScreen'; $t.TopMost = $true; $t.ShowInTaskbar = $false; $t.BackColor = [System.Drawing.Color]::FromArgb(31, 58, 95); $t.Size = New-Object System.Drawing.Size(520, 64); $t.Opacity = 0.95
 	$l = New-Object System.Windows.Forms.Label; $l.Dock = 'Fill'; $l.ForeColor = [System.Drawing.Color]::White; $l.TextAlign = 'MiddleCenter'; $l.Font = New-Object System.Drawing.Font('Microsoft JhengHei UI', 11, [System.Drawing.FontStyle]::Bold)
