@@ -891,7 +891,7 @@ function Weekly-Info { # → @{ pct; live }：每週用量 %。狀態列餵的�
 			$u = (Get-Content $UsageFile -Raw -Encoding UTF8) | ConvertFrom-Json
 			$w = $u.seven_day
 			if ($w -and $w.resets_at) { $script:wkResetMs = [double]$w.resets_at * 1000 }
-			if ($w -and $null -ne $w.pct -and (($nowMs - [double]$u.at) -lt 6 * 3600000) -and -not ($w.resets_at -and ([double]$w.resets_at * 1000) -lt $nowMs)) { return @{ pct = [double]$w.pct; live = $true } }
+			if ($w -and $null -ne $w.pct -and (($nowMs - [double]$u.at) -lt 6 * 3600000) -and -not ($w.resets_at -and ([double]$w.resets_at * 1000) -lt $nowMs)) { return @{ pct = [double]$w.pct; live = ($u.source -in 'statusline', 'oauth') } } # 手動／別處寫的數字只算「約」(~)，不冒充即時
 		}
 		if (-not $script:histFile) { $base = Join-Path $env:LOCALAPPDATA 'Claude-Data'; if (Test-Path $base) { $script:histFile = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'plan-usage-history.json' } | Where-Object { Test-Path $_ } | Select-Object -First 1 } }
 		if ($script:histFile) {
@@ -1424,6 +1424,17 @@ function Run-Scan {
 		$script:scanProc = [System.Diagnostics.Process]::Start($psi)
 	} catch { }
 }
+$UsagePollJs = Join-Path $PSScriptRoot 'usage-poll.mjs'
+$script:usageProc = $null
+function Run-UsagePoll { # 每 5 分鐘查一次每週用量（要先在終端機 claude auth login；沒登入就什麼都不會發生）
+	if (-not $script:nodeOk) { return }
+	if ($script:usageProc -and -not $script:usageProc.HasExited) { return }
+	try {
+		$psi = New-Object System.Diagnostics.ProcessStartInfo
+		$psi.FileName = 'node'; $psi.Arguments = '"' + $UsagePollJs + '"'; $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+		$script:usageProc = [System.Diagnostics.Process]::Start($psi)
+	} catch { }
+}
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 3000
 $script:tick = 0
@@ -1434,7 +1445,7 @@ function Flush-Errors { # 事件裡出的錯不會跳視窗：每輪把累積的
 	try { $Error | Select-Object -First 3 | ForEach-Object { Add-Content -Path $ErrLog -Value ("{0} widget: {1} @ {2}" -f (Get-Date -Format s), $_.Exception.Message, $_.InvocationInfo.PositionMessage) -Encoding UTF8 } } catch { }
 	$Error.Clear()
 }
-$timer.Add_Tick({ $script:tick++; if ($script:tick % 2 -eq 0) { Run-Scan }; Refresh-Data; Flush-Errors })
+$timer.Add_Tick({ $script:tick++; if ($script:tick % 2 -eq 0) { Run-Scan }; if ($script:tick % 100 -eq 2) { Run-UsagePoll }; Refresh-Data; Flush-Errors })
 
 # ---------- 截圖模式：把真正的視窗畫到圖上（不會在螢幕上跳出任何東西）----------
 function Snap-Ctl($c) { # 沒顯示的視窗畫不出子控制項：先放到螢幕外（-20000）、不搶焦點地 Show，畫完再藏起來
