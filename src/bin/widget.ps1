@@ -67,7 +67,9 @@ public class RowList : Control {
 	int MaxScroll() { return Math.Max(0, Items.Count * RowHeight - Height); }
 	public int HitTest(int y) { return IndexAt(y); }
 	int IndexAt(int y) { int i = (y + Scroll) / RowHeight; return (i >= 0 && i < Items.Count) ? i : -1; }
-	protected override void OnPaint(PaintEventArgs e) {
+	public string LastError = "";
+	protected override void OnPaint(PaintEventArgs e) { try { PaintBody(e); } catch (Exception ex) { LastError = ex.ToString(); } } // 畫圖出一次錯就會永久變成紅色大叉叉：吞掉、記下原因，下次重畫
+	void PaintBody(PaintEventArgs e) {
 		Graphics g = e.Graphics;
 		g.Clear(Back);
 		TextFormatFlags f = TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPadding;
@@ -355,9 +357,10 @@ $foot.Dock = 'Bottom'; $foot.Height = $FooterH; $foot.BackColor = $T.footer
 $btnWeb = Flat-Button '網頁清單' 92 30 $false; $btnWeb.Location = New-Object System.Drawing.Point(12, 9)
 $btnSet = Flat-Button '設定' 70 30 $false; $btnSet.Location = New-Object System.Drawing.Point(112, 9)
 $btnHide = Flat-Button '收起來' 84 30 $true; $btnHide.Location = New-Object System.Drawing.Point(($PW - 84 - 12), 9)
+$btnShot = Flat-Button '截圖' 56 30 $false; $btnShot.Location = New-Object System.Drawing.Point(188, 9)
 $hint = New-Object System.Windows.Forms.Label
-$hint.Text = '雙擊一列＝打開那個對話'; $hint.AutoSize = $true; $hint.ForeColor = $T.muted; $hint.Font = $FontSub; $hint.Location = New-Object System.Drawing.Point(196, 16)
-$foot.Controls.AddRange(@($btnWeb, $btnSet, $hint, $btnHide))
+$hint.Text = '雙擊一列＝打開那個對話'; $hint.AutoSize = $true; $hint.ForeColor = $T.muted; $hint.Font = $FontSub; $hint.Location = New-Object System.Drawing.Point(252, 16)
+$foot.Controls.AddRange(@($btnWeb, $btnSet, $btnShot, $hint, $btnHide))
 $panel.Controls.Add($list); $panel.Controls.Add($foot); $panel.Controls.Add($head)
 
 $script:items = @(); $script:lastCount = 0; $script:status = $null
@@ -401,6 +404,7 @@ function Show-Panel {
 	$head.Invalidate()
 }
 function Update-Look {
+	if ($script:shooting) { return }
 	$n = $script:items.Count
 	if ($n -gt 0) {
 		$msg = [string]$script:set.message
@@ -474,7 +478,7 @@ function Rebuild-List {
 	$list.Items = (Tab-Rows)
 	$list.Scroll = 0
 	$em = Empty-Messages; $list.EmptyTitle = $em[0]; $list.EmptyText = $em[1]
-	$hint.Text = switch ($script:tab) { 'pending' { '雙擊＝打開對話' } 'broken' { '點＝開對話並複製接續指令' } 'sessions' { '點一下＝打開對話' } 'projects' { '點一下＝開專案資料夾' } 'files' { '點一下＝找到檔案' } 'dirs' { '點一下＝開資料夾' } }
+	$hint.Text = switch ($script:tab) { 'pending' { '雙擊＝開對話' } 'broken' { '點＝開對話＋複製' } 'sessions' { '點＝開對話' } 'projects' { '點＝開資料夾' } 'files' { '點一下＝找到檔案' } 'dirs' { '點一下＝開資料夾' } }
 	$list.Invalidate(); $tabs.Invalidate()
 }
 # ---------- 額度守門：用量 ≥90% 只做你明確要的事、不派子代理；≥98% 全面停止（用量由狀態列小程式 usage-feed.mjs 寫進 data/usage.json，或右鍵「回報額度 %」手動填）----------
@@ -541,7 +545,7 @@ function Refresh-Data {
 		if ($script:set.sound) { try { [System.Media.SystemSounds]::Exclamation.Play() } catch { } }
 		$script:shakeStep = 0; $script:shakeX = $iconForm.Left; $shake.Start()
 	}
-	if ($n -lt $script:lastCount -and $script:set.pet) { Pet-Gain (6 * ($script:lastCount - $n)) '處理好了！' }
+	if ($n -lt $script:lastCount -and $script:set.pet -and ([DateTime]::Now - $script:lastDecXp).TotalMinutes -ge 3) { $script:lastDecXp = [DateTime]::Now; Pet-Gain 6 '處理好了！' }
 	$script:lastCount = $n
 	Update-Look
 	if ($panel.Visible) { Show-Panel }
@@ -727,6 +731,7 @@ function Show-Settings([switch]$Snapshot) {
 	}
 }
 $btnSet.Add_Click({ Show-Settings })
+$btnShot.Add_Click({ Take-Shot })
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
 $menu.Font = $FontBtn
@@ -740,6 +745,9 @@ $mpi = @{}
 foreach ($pair in @(@('feed', '餵食'), @('play', '陪玩'), @('pat', '摸摸'), @('sleep', '哄睡覺'), @('status', '看狀態'), @('name', '取名字…'))) { $mpi[$pair[0]] = $mp.DropDownItems.Add($pair[1]) }
 $mpi.feed.Add_Click({ $panel.Hide(); Pet-Feed }); $mpi.play.Add_Click({ $panel.Hide(); Pet-Play }); $mpi.pat.Add_Click({ $panel.Hide(); Pet-Pat }); $mpi.sleep.Add_Click({ $panel.Hide(); Pet-ToggleSleep }); $mpi.status.Add_Click({ $panel.Hide(); Pet-Status }); $mpi.name.Add_Click({ $panel.Hide(); Pet-Rename }) # 清單開著時先收起來，不然說的話會被擋住
 [void]$menu.Items.Insert(0, $mp)
+$mShot = New-Object System.Windows.Forms.ToolStripMenuItem '截圖（拖曳框選，存到「圖片\截圖」並複製）'
+$mShot.Add_Click({ Take-Shot })
+[void]$menu.Items.Insert(1, $mShot)
 $menu.Add_Opening({ $mp.Visible = [bool]$script:set.pet; $mpi.sleep.Text = $(if ($script:pet.sleeping) { '叫醒牠' } else { '哄睡覺' }) })
 $m4 = $menu.Items.Add('結束浮窗'); $m4.Add_Click({ $iconForm.Close() })
 $iconForm.ContextMenuStrip = $menu
@@ -764,7 +772,7 @@ $script:pet = @{ name = '小橘'; hunger = 80.0; mood = 80.0; energy = 90.0; sle
 try { if (Test-Path $PetFile) { $pj = Get-Content $PetFile -Raw -Encoding UTF8 | ConvertFrom-Json; foreach ($k in @('name', 'hunger', 'mood', 'energy', 'sleeping', 'born', 'last', 'fed', 'played', 'xp')) { if ($null -ne $pj.$k) { $script:pet[$k] = $pj.$k } } } } catch { }
 function Save-Pet { try { ($script:pet | ConvertTo-Json) | Set-Content -Path $PetFile -Encoding UTF8 } catch { } }
 function Pet-Clamp([double]$v) { [Math]::Max(0.0, [Math]::Min(100.0, $v)) }
-$script:petSaid = @{}
+$script:petSaid = @{}; $script:lastDecXp = [DateTime]::MinValue
 $petBubble = New-Object PopForm
 $petBubble.NoActivate = $true
 $petBubble.FormBorderStyle = 'None'; $petBubble.TopMost = $true; $petBubble.ShowInTaskbar = $false; $petBubble.StartPosition = 'Manual'; $petBubble.BackColor = $Navy
@@ -934,11 +942,14 @@ function Place-Tray {
 	$item.Location = New-Object System.Drawing.Point($ix, $iy)
 	$tx = $(if ($item.Visible) { $ix } else { $left }) - $TraySize - 4
 	$tray.Location = New-Object System.Drawing.Point($tx, ($iconForm.Bottom - $PillH - 16))
+	$cx0 = $(if ($tray.Visible) { $tx } elseif ($item.Visible) { $ix } else { $left }) - 34
+	$cam.Location = New-Object System.Drawing.Point($cx0, ($iconForm.Bottom - 30 - 18))
 }
 function Tray-Update { # 每次畫面更新時：週用量小條、還有牠現在想要什麼（餓了才出飯糰、無聊才出皮球；沒事桌面上就只有牠）
-	if ($Snap -or -not $tray) { return }
+	if ($Snap -or -not $tray -or $script:shooting) { return }
 	if ([Environment]::TickCount - $script:weeklyAt -gt 30000) { $script:weekly = Weekly-Info; $script:weeklyAt = [Environment]::TickCount }
 	$shown = [bool]$iconForm.Visible
+	if ($shown) { if (-not $cam.Visible) { $cam.Show() }; $cam.SetSprite($camBmp, [byte]225) } elseif ($cam.Visible) { $cam.Hide() }
 	$pill = ''; $pct = 0.0
 	if ($script:weekly) { $pct = [double]$script:weekly.pct; $pill = ('{0}週 {1}%' -f $(if ($script:weekly.live) { '' } else { '~' }), [int][Math]::Round($pct)) }
 	if ($shown -and $pill) {
@@ -964,7 +975,41 @@ $item.Add_MouseUp({
 	if ($script:itemKind -eq 0) { Pet-Feed } elseif ($script:itemKind -eq 1) { Pet-Play }
 	Tray-Update
 })
-$iconForm.Add_LocationChanged({ if ($tray.Visible -or $item.Visible) { Place-Tray } })
+$cam = New-Object PopForm # 截圖鈕：點一下就開始框選
+$cam.NoActivate = $true; $cam.Shadow = $false; $cam.Layered = $true
+$cam.FormBorderStyle = 'None'; $cam.TopMost = $true; $cam.ShowInTaskbar = $false; $cam.StartPosition = 'Manual'; $cam.Size = New-Object System.Drawing.Size(30, 30); $cam.Cursor = 'Hand'
+$camBmp = New-Object System.Drawing.Bitmap(30, 30, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+$cg = [System.Drawing.Graphics]::FromImage($camBmp); $cg.SmoothingMode = 'AntiAlias'; $cg.Clear([System.Drawing.Color]::Transparent)
+$cg.FillEllipse((New-Object System.Drawing.SolidBrush((RGB '#26344A'))), 1, 1, 28, 28)
+$cg.DrawEllipse((New-Object System.Drawing.Pen([System.Drawing.Color]::White, 2)), 2, 2, 26, 26)
+$cg.FillRectangle([System.Drawing.Brushes]::White, 12, 8, 6, 3)
+$cg.FillRectangle([System.Drawing.Brushes]::White, 8, 10, 14, 11)
+$cg.FillEllipse((New-Object System.Drawing.SolidBrush((RGB '#26344A'))), 12, 12, 6, 6)
+$cg.Dispose()
+$script:shooting = $false; $script:shotProc = $null
+$shotTimer = New-Object System.Windows.Forms.Timer
+$shotTimer.Interval = 300
+$shotTimer.Add_Tick({
+	if ($script:shotProc -and -not $script:shotProc.HasExited) { return }
+	$shotTimer.Stop(); $script:shooting = $false; $script:shotProc = $null
+	$iconForm.Show(); Update-Look; Tray-Update
+})
+function Take-Shot { # 把浮窗的所有小視窗先藏起來（才不會拍進去），叫截圖小程式出來框選；它結束後再把浮窗放回來
+	if ($script:shooting) { return }
+	$shotScript = Join-Path $PSScriptRoot 'shot.ps1'
+	if (-not (Test-Path $shotScript)) { return }
+	$script:shooting = $true
+	foreach ($f in @($panel, $bubble, $petBubble, $tray, $item, $cam, $iconForm)) { try { $f.Hide() } catch { } }
+	$out = Join-Path ([Environment]::GetFolderPath('MyPictures')) '截圖'
+	$psi = New-Object System.Diagnostics.ProcessStartInfo
+	$psi.FileName = (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe')
+	$psi.Arguments = '-NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $shotScript + '" -OutDir "' + $out + '"'
+	$psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+	$script:shotProc = [System.Diagnostics.Process]::Start($psi)
+	$shotTimer.Start()
+}
+$cam.Add_MouseUp({ param($s, $e) if ($e.Button -eq 'Left') { Take-Shot } })
+$iconForm.Add_LocationChanged({ if ($tray.Visible -or $item.Visible -or $cam.Visible) { Place-Tray } })
 
 # ---------- 啟動：每 3 秒讀狀態、每 6 秒叫 node 掃一次所有對話 ----------
 $script:scanProc = $null
@@ -982,6 +1027,7 @@ $timer.Interval = 3000
 $script:tick = 0
 $ErrLog = Join-Path $DataDir 'error.log'
 function Flush-Errors { # 事件裡出的錯不會跳視窗：每輪把累積的錯誤寫進 error.log（最多留最近 3 筆，避免洗版）
+	if ($list.LastError) { try { Add-Content -Path $ErrLog -Value ("{0} list-paint: {1}" -f (Get-Date -Format s), $list.LastError) -Encoding UTF8 } catch { }; $list.LastError = ''; $list.Invalidate() }
 	if ($Error.Count -eq 0) { return }
 	try { $Error | Select-Object -First 3 | ForEach-Object { Add-Content -Path $ErrLog -Value ("{0} widget: {1} @ {2}" -f (Get-Date -Format s), $_.Exception.Message, $_.InvocationInfo.PositionMessage) -Encoding UTF8 } } catch { }
 	$Error.Clear()
@@ -1031,6 +1077,6 @@ $timer.Start()
 $petTimer.Start()
 if ($script:set.walk) { Go-Home }
 $walk.Start()
-$iconForm.Add_FormClosed({ if ($script:set.pet) { Save-Pet }; $panel.Close(); $bubble.Close(); $petBubble.Close(); $tray.Close() })
+$iconForm.Add_FormClosed({ if ($script:set.pet) { Save-Pet }; $panel.Close(); $bubble.Close(); $petBubble.Close(); $tray.Close(); $item.Close(); $cam.Close() })
 [System.Windows.Forms.Application]::Run($iconForm)
 $mutex.ReleaseMutex()
