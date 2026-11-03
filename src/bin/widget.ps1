@@ -374,7 +374,7 @@ $panel.Controls.Add($list); $panel.Controls.Add($foot); $panel.Controls.Add($hea
 $script:items = @(); $script:lastCount = 0; $script:status = $null
 $script:tab = 'pending'; $script:recent = $null; $script:recentStamp = 0
 $TabsH = 38
-$tabDefs = @(@('pending', '待決定'), @('broken', '中斷'), @('sessions', '最近對話'), @('projects', '專案'), @('files', '最近檔案'), @('dirs', '資料夾'))
+$tabDefs = @(@('pending', '待決定'), @('running', '進行中'), @('broken', '中斷'), @('sessions', '最近對話'), @('projects', '專案'), @('files', '最近檔案'), @('dirs', '資料夾'))
 $tabs = New-Object System.Windows.Forms.Panel
 $tabs.Dock = 'Top'; $tabs.Height = $TabsH; $tabs.BackColor = $T.surface; $tabs.Cursor = 'Hand'
 $tabs.Add_Paint({
@@ -383,7 +383,7 @@ $tabs.Add_Paint({
 	$w = $s.Width / $tabDefs.Count
 	for ($i = 0; $i -lt $tabDefs.Count; $i++) {
 		$on = ($tabDefs[$i][0] -eq $script:tab)
-		$label = $tabDefs[$i][1]; if ($i -eq 0 -and $script:headCount -gt 0) { $label = "$label ($($script:headCount))" } elseif ($tabDefs[$i][0] -eq 'broken' -and $script:recent -and @($script:recent.broken).Count -gt 0) { $label = "$label ($(@($script:recent.broken).Count))" }
+		$label = $tabDefs[$i][1]; if ($i -eq 0 -and $script:headCount -gt 0) { $label = "$label ($($script:headCount))" } elseif ($tabDefs[$i][0] -eq 'broken' -and $script:recent -and @($script:recent.broken).Count -gt 0) { $label = "$label ($(@($script:recent.broken).Count))" } elseif ($tabDefs[$i][0] -eq 'running' -and $script:recent -and @($script:recent.running).Count -gt 0) { $label = "$label ($(@($script:recent.running).Count))" }
 		$col = if ($on) { $T.fg } else { $T.muted }
 		[System.Windows.Forms.TextRenderer]::DrawText($g, $label, $(if ($on) { $FontTitle } else { $FontSub }), (New-Object System.Drawing.Rectangle([int]($i * $w), 0, [int]$w, ($TabsH - 3))), $col, [System.Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [System.Windows.Forms.TextFormatFlags]::VerticalCenter -bor [System.Windows.Forms.TextFormatFlags]::NoPadding)
 		if ($on) { $g.FillRectangle((New-Object System.Drawing.SolidBrush($T.accent)), [int]($i * $w + 14), ($TabsH - 3), [int]($w - 28), 3) }
@@ -429,6 +429,7 @@ function Update-Look {
 	Tray-Update
 }
 function Empty-Messages { # 空狀態與錯誤的文案
+	if ($script:tab -eq 'running' -and $script:recent) { return @('現在沒有對話在跑', '每個對話都回完了或停住了，這時關機不會中斷任何事。') }
 	if ($script:tab -eq 'broken' -and $script:recent) { return @('沒有中斷的對話', '最近的對話不是正常回完，就是還在跑；有斷線的會出現在這裡。') }
 	if ($script:tab -ne 'pending') { if (-not $script:recent) { return @('還沒有資料', '掃描完成後這裡會列出最近的內容（每幾秒更新）。') }; return @('最近三天沒有', '它最近三天沒有做過這類事。') }
 	if (-not $script:nodeOk) { return @('找不到 Node.js', '浮窗需要 Node.js 來掃描對話紀錄。請安裝（https://nodejs.org）後重新開啟浮窗。') }
@@ -473,7 +474,8 @@ function Tab-Rows { # 目前這個分頁要列的資料
 				[void]$rows.Add($row)
 			}
 		}
-		'broken' { if ($script:recent) { foreach ($x in @($script:recent.broken)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = '停在：' + $(if ($x.stopped) { [string]$x.stopped } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '停住了' $T.accent $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}`n它最後說：{3}" -f $x.title, $x.cwd, $sub, $x.said))) } } }
+		'running' { if ($script:recent) { foreach ($x in @($script:recent.running)) { $sub = '正在：' + $(if ($x.doing) { [string]$x.doing } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '跑著' $T.amber $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $sub))) } } }
+			'broken' { if ($script:recent) { foreach ($x in @($script:recent.broken)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = '停在：' + $(if ($x.stopped) { [string]$x.stopped } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '停住了' $T.accent $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}`n它最後說：{3}" -f $x.title, $x.cwd, $sub, $x.said))) } } }
 		'sessions' { if ($script:recent) { foreach ($x in @($script:recent.sessions)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = (@($proj, [string]$x.last) | Where-Object { $_ }) -join '  ·  '; [void]$rows.Add((New-Row ([string]$x.title) '對話' $T.blue $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $x.last))) } } }
 		'projects' { if ($script:recent) { foreach ($x in @($script:recent.projects)) { $leaf = Split-Path ([string]$x.path) -Leaf; if (-not $leaf) { $leaf = [string]$x.path }; [void]$rows.Add((New-Row $leaf ("{0} 個對話" -f $x.count) $T.accent ((@($x.titles) | Where-Object { $_ }) -join '、') (Age-Text ([double]$x.at)) ([string]$x.path) ([string]$x.path))) } } }
 		'files' { if ($script:recent) { foreach ($x in @($script:recent.files)) { [void]$rows.Add((New-Row ([System.IO.Path]::GetFileName([string]$x.path)) '檔案' $T.accent (Short-Dir ([System.IO.Path]::GetDirectoryName([string]$x.path))) (Age-Text ([double]$x.at)) ([string]$x.path) ([string]$x.path))) } } }
@@ -486,7 +488,7 @@ function Rebuild-List {
 	$list.Items = (Tab-Rows)
 	if ($script:listTab -ne $script:tab) { $list.Scroll = 0; $script:listTab = $script:tab } # 每 3 秒會重建一次：只有換分頁才回到最上面，不然捲到一半就彈回去
 	$em = Empty-Messages; $list.EmptyTitle = $em[0]; $list.EmptyText = $em[1]
-	$hint.Text = switch ($script:tab) { 'pending' { '雙擊＝開對話' } 'broken' { '點＝開對話＋複製' } 'sessions' { '點＝開對話' } 'projects' { '點＝開資料夾' } 'files' { '點一下＝找到檔案' } 'dirs' { '點一下＝開資料夾' } }
+	$hint.Text = switch ($script:tab) { 'pending' { '雙擊＝開對話' } 'running' { '點＝開對話' } 'broken' { '點＝開對話＋複製' } 'sessions' { '點＝開對話' } 'projects' { '點＝開資料夾' } 'files' { '點一下＝找到檔案' } 'dirs' { '點一下＝開資料夾' } }
 	$list.Invalidate(); $tabs.Invalidate()
 }
 # ---------- 額度守門：用量 ≥90% 只做你明確要的事、不派子代理；≥98% 全面停止（用量由狀態列小程式 usage-feed.mjs 寫進 data/usage.json，或右鍵「回報額度 %」手動填）----------
@@ -623,7 +625,8 @@ $list.Add_RowActivated({
 			try { [System.Windows.Forms.Clipboard]::SetText($txt) } catch { }
 			Open-Session $row.Key
 		}
-		'sessions' { Open-Session $row.Key }
+		'running' { Open-Session $row.Key }
+			'sessions' { Open-Session $row.Key }
 		'projects' { Reveal-Path $row.Key $true }
 		'files' { Reveal-Path $row.Key $false }
 		'dirs' { Reveal-Path $row.Key $true }
