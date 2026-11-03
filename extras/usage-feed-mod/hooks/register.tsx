@@ -9,11 +9,32 @@ const weekly = atom({ plugin: 'usage-feed', key: 'weekly' } as const, null)
 // Show the weekly one above the prompt, and write it where the desktop widget reads it
 // (<home>/.claude/pending-decisions/data/usage.json, same shape the widget's own feeds use).
 export const register: Register = on => {
+  // Right at start (no model call, no tokens): show the last number the widget file holds,
+  // so the line is there before the first message. A real measure replaces it.
+  on('session.start', async ($, e, next) => {
+    try {
+      const home = await $.env.get('USERPROFILE')
+      if (home) {
+        const u = JSON.parse(await $.fs.read(`${home}/.claude/pending-decisions/data/usage.json`))
+        const pct = u?.seven_day?.pct
+        const resets = u?.seven_day?.resets_at
+        const live = typeof resets === 'number' ? resets * 1000 > (await $.clock.now()) : true
+        if (typeof pct === 'number' && live) {
+          const old = (await $.clock.now()) - (u.at ?? 0) > 6 * 3600 * 1000
+          await update($, weekly, () => ({ pct, resetsAt: typeof resets === 'number' ? new Date(resets * 1000).toISOString() : null, approx: old }))
+        }
+      }
+    } catch {
+      // no file yet: wait for the first measure
+    }
+    return next(e)
+  })
+
   on('session.measure', async ($, e, next) => {
     const win = e.rateLimits.find(l => l.kind === 'seven_day')
 
     if (win) {
-      const next_: Weekly = { pct: win.percentUsed, resetsAt: win.resetsAt ?? null }
+      const next_: Weekly = { pct: win.percentUsed, resetsAt: win.resetsAt ?? null, approx: false }
       await update($, weekly, () => next_)
 
       const home = await $.env.get('USERPROFILE')
@@ -47,7 +68,7 @@ export const register: Register = on => {
 
     return (
       <Box>
-        <Text dimColor>Weekly usage {Math.round(w.pct)}%</Text>
+        <Text dimColor>Weekly usage {w.approx ? '~' : ''}{Math.round(w.pct)}%</Text>
       </Box>
     )
   })

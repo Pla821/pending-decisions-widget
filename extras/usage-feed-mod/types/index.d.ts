@@ -1,4 +1,4 @@
-export type Weekly = { pct: number; resetsAt: string | null }
+export type Weekly = { pct: number; resetsAt: string | null; approx?: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
