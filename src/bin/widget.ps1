@@ -900,7 +900,7 @@ function Weekly-Info { # → @{ pct; live }：每週用量 %。狀態列餵的�
 			$u = (Get-Content $UsageFile -Raw -Encoding UTF8) | ConvertFrom-Json
 			$w = $u.seven_day
 			if ($w -and $w.resets_at) { $script:wkResetMs = [double]$w.resets_at * 1000 }
-			if ($w -and $null -ne $w.pct -and (($nowMs - [double]$u.at) -lt 6 * 3600000) -and -not ($w.resets_at -and ([double]$w.resets_at * 1000) -lt $nowMs)) { return @{ pct = [double]$w.pct; live = ($u.source -in 'statusline', 'oauth') } } # 手動／別處寫的數字只算「約」(~)，不冒充即時
+			if ($w -and $null -ne $w.pct -and (($nowMs - [double]$u.at) -lt 6 * 3600000) -and -not ($w.resets_at -and ([double]$w.resets_at * 1000) -lt $nowMs)) { return @{ pct = [double]$w.pct; live = ($u.source -in 'statusline', 'oauth', 'mod') } } # 手動／別處寫的數字只算「約」(~)，不冒充即時
 		}
 		if (-not $script:histFile) { $base = Join-Path $env:LOCALAPPDATA 'Claude-Data'; if (Test-Path $base) { $script:histFile = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'plan-usage-history.json' } | Where-Object { Test-Path $_ } | Select-Object -First 1 } }
 		if ($script:histFile) {

@@ -87,7 +87,15 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\pending-decis
 
 ### 額度警示（選用）
 `install.ps1 -UsageGuard` 會把 Claude Code 狀態列接到 `usage-feed.mjs`（已有自己的狀態列就不動）。用量 ≥90% 浮窗提醒「只做明確要的事」，≥98% 提醒「全面停止」。只有 Pro／Max 帳號的狀態列才有用量數字；沒有的話可在右鍵「回報額度 %」手動填。
-桌面版不會餵狀態列：在終端機執行一次 `claude auth login`，浮窗就會每 5 分鐘自動查一次週用量（`usage-poll.mjs`，讀本機登入檔、只連 Anthropic、不花額度；用的是非公開網址，可能失效，失效時退回「~」約略值）。登入檔的 token 約 8 小時就過期，要在終端機用一下 `claude` 才會換新；過期期間小條顯示「~」舊值。另外，有對話正在用 Fable 模型（走另一個額度池）時會提醒，已經換掉就不再顯示。
+**最省事（推薦）：裝 usage-feed 小模組**——Claude 桌面版／終端機版都適用，不碰登入檔、不花額度，輸入框上方會顯示「Weekly usage N%」，浮窗小條也同步即時更新。在終端機版 Claude Code 的輸入框輸入（問要不要加市集按 `y`，再選範圍）：
+
+```
+/plugin install usage-feed --marketplace Pla821/pending-decisions-widget
+```
+
+原始碼在 `extras/usage-feed-mod/`。它只會在已開著、已載入它的 Claude 對話裡更新。
+
+沒裝模組的話，桌面版不會餵狀態列：在終端機執行一次 `claude auth login`，浮窗就會每 5 分鐘自動查一次週用量（`usage-poll.mjs`，讀本機登入檔、只連 Anthropic、不花額度；用的是非公開網址，可能失效，失效時退回「~」約略值）。登入檔的 token 約 8 小時就過期，要在終端機用一下 `claude` 才會換新；過期期間小條顯示「~」舊值。另外，有對話正在用 Fable 模型（走另一個額度池）時會提醒，已經換掉就不再顯示。
 
 ## 設定
 

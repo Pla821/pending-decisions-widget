@@ -1,0 +1,6 @@
+{
+  "name": "usage-feed",
+  "version": "0.1.0",
+  "description": "Shows the weekly plan usage above the prompt and feeds it to the pending-decisions widget (data/usage.json).",
+  "types": "./types/index.d.ts"
+}

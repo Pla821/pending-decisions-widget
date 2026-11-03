@@ -21,6 +21,7 @@
 
 - 週用量自動更新：浮窗每 5 分鐘叫 `usage-poll.mjs`，用終端機版 `claude auth login` 登入後留在本機的登入檔向 Anthropic 查週用量（非公開網址，不呼叫模型、不花額度；查不到就退回 ~ 約略值）。桌面版自己的登入讀不到，所以要先在終端機登入一次。
 
+- usage-feed 小模組（`extras/usage-feed-mod/`，`/plugin install usage-feed --marketplace Pla821/pending-decisions-widget`）：Claude 把週用量推給模組，輸入框上方顯示「Weekly usage N%」並寫進 `usage.json`（source `mod`），浮窗小條即時更新，不讀登入檔、不花額度。repo 根目錄 `.claude-plugin/marketplace.json` 讓它能被安裝。
 - 內建造型多一個「橘色吉祥物」（Claude 風像素小怪，走路跳、待機揮手眨眼；`tools\make-mascot.ps1` 產生）。
 - 清單一次最多顯示 3 列，其餘用滾輪捲，右邊有細捲軸條；每 3 秒重整不會再把捲動位置彈回最上面（換分頁才回頂）。
 - 按住左鍵在任何地方（圖示、清單、標題、分頁、底部、對話框、用量小條、相機鈕、玩具箱鈕）都能拖著整個浮窗搬位置；只點一下的功能照舊。

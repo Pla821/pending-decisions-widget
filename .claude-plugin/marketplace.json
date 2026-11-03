@@ -1,0 +1,11 @@
+{
+  "name": "pending-decisions-widget",
+  "owner": { "name": "Pla821" },
+  "plugins": [
+    {
+      "name": "usage-feed",
+      "source": "./extras/usage-feed-mod",
+      "description": "Shows the weekly plan usage above the prompt and feeds it to the pending-decisions widget."
+    }
+  ]
+}
