@@ -138,7 +138,7 @@ try {
 			const lastRun = [...r.recent.runs].reverse().find((x) => x.named), lastFile = r.recent.files[r.recent.files.length - 1];
 			const idle = now - st.mtimeMs, broke = !!(r.tail && r.tail.k !== 'done' && pend.length === 0 && idle >= STALL); // 最後一筆不是「回完了」、沒有在等你回答、而且安靜超過 STALL＝疑似中斷
 			const run = !!(r.tail && r.tail.k !== 'done' && pend.length === 0 && idle < STALL); // 最後一筆不是「回完了」、沒在等你、而且 5 分鐘內還有動靜＝正在跑
-				sessAll.push({ sid, at: st.mtimeMs, cwd: r.cwd || '', last: lastRun ? lastRun.text : (lastFile ? path.basename(lastFile.path) : ''), broke, run, doing: run ? r.tail.what : '', stopped: broke ? r.tail.what : '', said: broke ? (r.lastText || '') : '' });
+				sessAll.push({ sid, at: st.mtimeMs, cwd: r.cwd || '', last: lastRun ? lastRun.text : (lastFile ? path.basename(lastFile.path) : ''), broke, run, fable: !!(run && r.model && stillFable && /fable/i.test(r.model.name)), doing: run ? r.tail.what : '', stopped: broke ? r.tail.what : '', said: broke ? (r.lastText || '') : '' });
 			for (const x of r.recent.runs) { runsAll.push({ ...x, sid }); }
 			for (const x of r.recent.files) { filesAll.push({ ...x, sid }); }
 			for (const x of r.recent.dirs) { dirsAll.push({ ...x, sid }); }
