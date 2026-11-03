@@ -383,7 +383,7 @@ $tabs.Add_Paint({
 	$w = $s.Width / $tabDefs.Count
 	for ($i = 0; $i -lt $tabDefs.Count; $i++) {
 		$on = ($tabDefs[$i][0] -eq $script:tab)
-		$label = $tabDefs[$i][1]; if ($i -eq 0 -and $script:headCount -gt 0) { $label = "$label ($($script:headCount))" } elseif ($tabDefs[$i][0] -eq 'broken' -and $script:recent -and @($script:recent.broken).Count -gt 0) { $label = "$label ($(@($script:recent.broken).Count))" } elseif ($tabDefs[$i][0] -eq 'running' -and $script:recent -and @($script:recent.running).Count -gt 0) { $label = "$label ($(@($script:recent.running).Count))" }
+		$label = $tabDefs[$i][1]; if ($i -eq 0 -and $script:headCount -gt 0) { $label = "$label ($($script:headCount))" } elseif ($tabDefs[$i][0] -eq 'broken' -and $script:recent -and @($script:recent.broken).Count -gt 0) { $label = "$label ($(@($script:recent.broken).Count))" } elseif ($tabDefs[$i][0] -eq 'running' -and (Running-Count) -gt 0) { $label = "$label ($(Running-Count))" }
 		$col = if ($on) { $T.fg } else { $T.muted }
 		[System.Windows.Forms.TextRenderer]::DrawText($g, $label, $(if ($on) { $FontTitle } else { $FontSub }), (New-Object System.Drawing.Rectangle([int]($i * $w), 0, [int]$w, ($TabsH - 3))), $col, [System.Windows.Forms.TextFormatFlags]::HorizontalCenter -bor [System.Windows.Forms.TextFormatFlags]::VerticalCenter -bor [System.Windows.Forms.TextFormatFlags]::NoPadding)
 		if ($on) { $g.FillRectangle((New-Object System.Drawing.SolidBrush($T.accent)), [int]($i * $w + 14), ($TabsH - 3), [int]($w - 28), 3) }
@@ -429,7 +429,7 @@ function Update-Look {
 	Tray-Update
 }
 function Empty-Messages { # 空狀態與錯誤的文案
-	if ($script:tab -eq 'running' -and $script:recent) { return @('現在沒有對話在跑', '每個對話都回完了或停住了，這時關機不會中斷任何事。') }
+	if ($script:tab -eq 'running' -and $script:recent) { return @('現在沒有東西在跑', '沒有對話在做事，也沒有下載、轉檔之類的背景程式，這時關機不會中斷任何事。') }
 	if ($script:tab -eq 'broken' -and $script:recent) { return @('沒有中斷的對話', '最近的對話不是正常回完，就是還在跑；有斷線的會出現在這裡。') }
 	if ($script:tab -ne 'pending') { if (-not $script:recent) { return @('還沒有資料', '掃描完成後這裡會列出最近的內容（每幾秒更新）。') }; return @('最近三天沒有', '它最近三天沒有做過這類事。') }
 	if (-not $script:nodeOk) { return @('找不到 Node.js', '浮窗需要 Node.js 來掃描對話紀錄。請安裝（https://nodejs.org）後重新開啟浮窗。') }
@@ -474,8 +474,10 @@ function Tab-Rows { # 目前這個分頁要列的資料
 				[void]$rows.Add($row)
 			}
 		}
-		'running' { if ($script:recent) { foreach ($x in @($script:recent.running)) { $sub = '正在：' + $(if ($x.doing) { [string]$x.doing } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '跑著' $T.amber $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $sub))) } } }
-			'broken' { if ($script:recent) { foreach ($x in @($script:recent.broken)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = '停在：' + $(if ($x.stopped) { [string]$x.stopped } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '停住了' $T.accent $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}`n它最後說：{3}" -f $x.title, $x.cwd, $sub, $x.said))) } } }
+		'running' { if ($script:recent) { foreach ($x in @($script:recent.running)) { $sub = '正在：' + $(if ($x.doing) { [string]$x.doing } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '跑著' $T.amber $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $sub))) } }
+		# 背景程式也列在這頁（對話回完了、程式還在跑）
+		foreach ($w in @($script:workers)) { [void]$rows.Add((New-Row ([string]$w.title) '背景' $T.blue $(if ($w.sub -and $w.sub -ne $w.title) { [string]$w.sub } elseif ($w.dir) { Short-Dir ([string]$w.dir) } else { '（程式 ' + $w.pid + '）' }) (Age-Text ([double]$w.at)) ($(if ($w.dir) { 'dir:' + $w.dir } else { '' })) ("{0}`n{1}" -f $w.title, $w.cmd))) } }
+		'broken' { if ($script:recent) { foreach ($x in @($script:recent.broken)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = '停在：' + $(if ($x.stopped) { [string]$x.stopped } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '停住了' $T.accent $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}`n它最後說：{3}" -f $x.title, $x.cwd, $sub, $x.said))) } } }
 		'sessions' { if ($script:recent) { foreach ($x in @($script:recent.sessions)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = (@($proj, [string]$x.last) | Where-Object { $_ }) -join '  ·  '; [void]$rows.Add((New-Row ([string]$x.title) '對話' $T.blue $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $x.last))) } } }
 		'projects' { if ($script:recent) { foreach ($x in @($script:recent.projects)) { $leaf = Split-Path ([string]$x.path) -Leaf; if (-not $leaf) { $leaf = [string]$x.path }; [void]$rows.Add((New-Row $leaf ("{0} 個對話" -f $x.count) $T.accent ((@($x.titles) | Where-Object { $_ }) -join '、') (Age-Text ([double]$x.at)) ([string]$x.path) ([string]$x.path))) } } }
 		'files' { if ($script:recent) { foreach ($x in @($script:recent.files)) { [void]$rows.Add((New-Row ([System.IO.Path]::GetFileName([string]$x.path)) '檔案' $T.accent (Short-Dir ([System.IO.Path]::GetDirectoryName([string]$x.path))) (Age-Text ([double]$x.at)) ([string]$x.path) ([string]$x.path))) } } }
@@ -488,7 +490,7 @@ function Rebuild-List {
 	$list.Items = (Tab-Rows)
 	if ($script:listTab -ne $script:tab) { $list.Scroll = 0; $script:listTab = $script:tab } # 每 3 秒會重建一次：只有換分頁才回到最上面，不然捲到一半就彈回去
 	$em = Empty-Messages; $list.EmptyTitle = $em[0]; $list.EmptyText = $em[1]
-	$hint.Text = switch ($script:tab) { 'pending' { '雙擊＝開對話' } 'running' { '點＝開對話' } 'broken' { '點＝開對話＋複製' } 'sessions' { '點＝開對話' } 'projects' { '點＝開資料夾' } 'files' { '點一下＝找到檔案' } 'dirs' { '點一下＝開資料夾' } }
+	$hint.Text = switch ($script:tab) { 'pending' { '雙擊＝開對話' } 'running' { '點＝開' } 'broken' { '點＝開對話＋複製' } 'sessions' { '點＝開對話' } 'projects' { '點＝開資料夾' } 'files' { '點一下＝找到檔案' } 'dirs' { '點一下＝開資料夾' } }
 	$list.Invalidate(); $tabs.Invalidate()
 }
 # ---------- 額度守門：用量 ≥90% 只做你明確要的事、不派子代理；≥98% 全面停止（用量由狀態列小程式 usage-feed.mjs 寫進 data/usage.json，或右鍵「回報額度 %」手動填）----------
@@ -541,6 +543,30 @@ function Dismiss-Fable([string]$sid) { # 「知道了」：這個對話 12 小�
 	} catch { }
 	Run-Scan
 }
+# 背景程式：電腦上現在還在跑的工作（下載、轉檔、備份、腳本…）；對話回完了它們還在跑，關機會中斷
+$script:workers = @(); $script:workersAt = [DateTime]::MinValue
+$WorkerSkip = 'gemini-mcp-tool|npx-cli\.js|codex-runtimes|claude-code|pending-decisions|-NoExit|dev-mods|Claude_Browser|\\mcp'
+function Running-Count { $a = 0; if ($script:recent -and $script:recent.running) { $a = @($script:recent.running).Count }; return ($a + @($script:workers).Count) }
+function Read-Workers { # 每 15 秒查一次；剛啟動不到 20 秒的先不算（避免短指令一閃而過）
+	if (([DateTime]::Now - $script:workersAt).TotalSeconds -lt 15) { return }
+	$script:workersAt = [DateTime]::Now
+	try {
+		$out = New-Object System.Collections.ArrayList
+		$flt = "Name='node.exe' OR Name='python.exe' OR Name='pythonw.exe' OR Name='py.exe' OR Name='ffmpeg.exe' OR Name='robocopy.exe' OR Name='rclone.exe' OR Name='curl.exe' OR Name='wget.exe' OR Name='7z.exe' OR Name='powershell.exe' OR Name='pwsh.exe'"
+		foreach ($p in @(Get-CimInstance Win32_Process -Filter $flt -ErrorAction Stop)) {
+			$cmd = [string]$p.CommandLine
+			if (-not $cmd -or $p.ProcessId -eq $PID -or $cmd -match $WorkerSkip) { continue }
+			if ($p.Name -match 'powershell|pwsh' -and $cmd -notmatch '-File|-Command') { continue }
+			if (-not $p.CreationDate -or ([DateTime]::Now - $p.CreationDate).TotalSeconds -lt 20) { continue }
+			$m = [regex]::Match($cmd, '"([^"]+\.(mjs|js|py|ps1|cmd|bat))"|(\S+\.(mjs|js|py|ps1|cmd|bat))')
+			$scr = if ($m.Success) { $(if ($m.Groups[1].Success) { $m.Groups[1].Value } else { $m.Groups[3].Value }) } else { '' }
+			$dir = ''; if ($scr -and [System.IO.Path]::IsPathRooted($scr)) { try { $dir = [System.IO.Path]::GetDirectoryName($scr) } catch { } }
+			$args1 = ($cmd -replace '^"[^"]+"\s*', '' -replace '^\S+\s*', '').Trim(); if ($args1.Length -gt 110) { $args1 = $args1.Substring(0, 110) + '…' }
+			[void]$out.Add([pscustomobject]@{ title = $(if ($scr) { [System.IO.Path]::GetFileName($scr) } else { [string]$p.Name }); pid = [int]$p.ProcessId; at = [double]([DateTimeOffset]$p.CreationDate).ToUnixTimeMilliseconds(); sub = $args1; cmd = $cmd; dir = $dir })
+		}
+		$script:workers = @($out | Sort-Object at)
+	} catch { }
+}
 function Refresh-Data {
 	$items = @()
 	try { if (Test-Path $StateFile) { $j = (Get-Content $StateFile -Raw -Encoding UTF8) | ConvertFrom-Json; $items = @($j.items | Where-Object { $_.status -eq 'pending' } | Sort-Object { [double]$_.at } -Descending) } } catch { }
@@ -550,6 +576,7 @@ function Refresh-Data {
 	$n = $items.Count
 	$script:headCount = $n; $head.Invalidate()
 	Read-Recent
+	Read-Workers
 	Rebuild-List
 	if ($n -gt $script:lastCount) { Pet-Wake ''; # 有新的：叮一聲＋圖抖一下
 		if ($script:set.sound) { try { [System.Media.SystemSounds]::Exclamation.Play() } catch { } }
@@ -625,7 +652,7 @@ $list.Add_RowActivated({
 			try { [System.Windows.Forms.Clipboard]::SetText($txt) } catch { }
 			Open-Session $row.Key
 		}
-		'running' { Open-Session $row.Key }
+		'running' { if ([string]$row.Key -like 'dir:*') { Reveal-Path ([string]$row.Key).Substring(4) $true } elseif ($row.Key) { Open-Session $row.Key } }
 			'sessions' { Open-Session $row.Key }
 		'projects' { Reveal-Path $row.Key $true }
 		'files' { Reveal-Path $row.Key $false }
