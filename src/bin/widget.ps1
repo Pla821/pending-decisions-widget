@@ -80,7 +80,9 @@ public class RowList : Control {
 			TextRenderer.DrawText(g, EmptyText, SubFont, r2, Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
 			return;
 		}
-		for (int i = 0; i < Items.Count; i++) {
+		int total = Items.Count * RowHeight;
+			if (Scroll > Math.Max(0, total - Height)) Scroll = Math.Max(0, total - Height); // 清單變短時別卡在空白處
+			for (int i = 0; i < Items.Count; i++) {
 			int y = i * RowHeight - Scroll;
 			if (y + RowHeight < 0 || y > Height) continue;
 			RowItem it = Items[i]; if (it == null) continue;
@@ -95,7 +97,13 @@ public class RowList : Control {
 			TextRenderer.DrawText(g, it.Sub, SubFont, new Rectangle(18 + ls.Width + 8, y + 32, Width - 18 - ls.Width - 8 - 14, 22), Muted, f);
 			using (Pen p = new Pen(Line)) { g.DrawLine(p, 18, y + RowHeight - 1, Width - 1, y + RowHeight - 1); }
 		}
+		if (total > Height && Height > 0) { // 一次只顯示幾列：右邊一條細細的捲軸提示還有更多（滾輪捲動）
+			int th = Math.Max(28, (int)((long)Height * Height / total));
+			int ty = (int)((long)(Height - th) * Scroll / (total - Height));
+			using (SolidBrush b = new SolidBrush(Color.FromArgb(160, Muted))) { g.FillRectangle(b, Width - 7, ty + 3, 4, th - 6); }
+		}
 	}
+	protected override void OnMouseEnter(EventArgs e) { if (!Focused) Focus(); base.OnMouseEnter(e); } // 滑鼠移進來就能用滾輪
 	protected override void OnMouseMove(MouseEventArgs e) {
 		int i = IndexAt(e.Y);
 		if (i != Hover) {
@@ -184,7 +192,7 @@ function Icon-Files { # 內建＋使用者自己的
 	$all = @()
 	# 動畫圖示＝多張 名稱@1.png、名稱@2.png…（可加 名稱@idle1.png… 當沒待決定時的待機動作），清單只列第一張
 	foreach ($d in @($BuiltinIconDir, $UserIconDir)) { if (Test-Path $d) { $all += Get-ChildItem $d -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -match '^\.(png|jpg|jpeg|gif|bmp|ico)$' -and $_.Name -notmatch '@(idle\d+|[02-9]|[1-9]\d+)\.png$' } | Sort-Object Name } }
-	return $all
+	return @($all | Group-Object Name | ForEach-Object { $_.Group[0] }) # 內建與使用者資料夾同名時只列一次（Find-Icon 仍優先用使用者那份）
 }
 function Find-Icon([string]$name) {
 	foreach ($d in @($UserIconDir, $BuiltinIconDir)) { $p = Join-Path $d $name; if (Test-Path $p) { return $p } }
@@ -381,7 +389,7 @@ $tabs.Add_Paint({
 		if ($on) { $g.FillRectangle((New-Object System.Drawing.SolidBrush($T.accent)), [int]($i * $w + 14), ($TabsH - 3), [int]($w - 28), 3) }
 	}
 })
-$tabs.Add_MouseUp({ param($s, $e) $i = [Math]::Min($tabDefs.Count - 1, [Math]::Max(0, [int][Math]::Floor($e.X / ($s.Width / $tabDefs.Count)))); $script:tab = $tabDefs[$i][0]; Rebuild-List; Show-Panel })
+$tabs.Add_MouseUp({ param($s, $e) if ($script:pdMoved) { return }; $i =[Math]::Min($tabDefs.Count - 1, [Math]::Max(0, [int][Math]::Floor($e.X / ($s.Width / $tabDefs.Count)))); $script:tab = $tabDefs[$i][0]; Rebuild-List; Show-Panel })
 $panel.Controls.Remove($head); $panel.Controls.Add($tabs); $panel.Controls.Add($head) # 左到右：標題、分頁、清單、底部按鈕
 
 function Place-Around {
@@ -394,7 +402,7 @@ function Place-Around {
 	}
 }
 function Show-Panel {
-	$rows = [Math]::Max(0, [Math]::Min(7, $list.Items.Count))
+	$rows = [Math]::Max(0, [Math]::Min(3, $list.Items.Count))
 	$body = if ($rows -eq 0) { 120 } else { $list.RowHeight * $rows }
 	$panel.Size = New-Object System.Drawing.Size($PW, ($HeaderH + $TabsH + $body + $FooterH))
 	if (-not $panel.IsHandleCreated) { [void]$panel.Handle; Round-Form $panel 14 } else { Round-Form $panel 14 }
@@ -476,7 +484,7 @@ function Tab-Rows { # 目前這個分頁要列的資料
 function Rebuild-List {
 	$list.SingleClick = ($script:tab -ne 'pending')
 	$list.Items = (Tab-Rows)
-	$list.Scroll = 0
+	if ($script:listTab -ne $script:tab) { $list.Scroll = 0; $script:listTab = $script:tab } # 每 3 秒會重建一次：只有換分頁才回到最上面，不然捲到一半就彈回去
 	$em = Empty-Messages; $list.EmptyTitle = $em[0]; $list.EmptyText = $em[1]
 	$hint.Text = switch ($script:tab) { 'pending' { '雙擊＝開對話' } 'broken' { '點＝開對話＋複製' } 'sessions' { '點＝開對話' } 'projects' { '點＝開資料夾' } 'files' { '點一下＝找到檔案' } 'dirs' { '點一下＝開資料夾' } }
 	$list.Invalidate(); $tabs.Invalidate()
@@ -579,7 +587,7 @@ $iconForm.Add_MouseUp({ param($s, $e)
 	else { if ($panel.Visible) { $panel.Hide(); Update-Look } else { Show-Panel } }
 	$script:down = $null
 })
-$bl.Add_Click({ Show-Panel })
+$bl.Add_Click({ if (-not $script:pdMoved) { Show-Panel } })
 $btnHide.Add_Click({ $panel.Hide(); Update-Look })
 $btnWeb.Add_Click({ if (Test-Path $HtmlFile) { Start-Process $HtmlFile } })
 function Open-Session([string]$local) { if ($local) { Start-Process ("claude://claude.ai/epitaxy/" + $local) } elseif (Test-Path $HtmlFile) { Start-Process $HtmlFile } } # CLI 使用者沒有桌面版連結：改開網頁清單
@@ -604,6 +612,7 @@ $list.Add_MouseUp({ param($s, $e)
 	if ($row.Extra) { $script:menuSid = $row.Extra; $rowMenu.Show($list, $e.Location) }
 })
 $list.Add_RowActivated({
+	if ($script:pdMoved) { return } # 剛剛是在拖整個浮窗，不是點那一列
 	$row = $list.Items[$list.ActivatedIndex]
 	if (-not $row) { return }
 	switch ($script:tab) {
@@ -642,7 +651,7 @@ $walk = New-Object System.Windows.Forms.Timer
 $walk.Interval = 40
 $walk.Add_Tick({
 	if (-not $script:set.walk -or -not $iconForm.Visible -or $script:petBusy) { return } # 玩遊戲（追東西／打架）時由遊戲接手
-	if ($script:down -or $shake.Enabled -or $panel.Visible -or (Pet-Asleep)) { if ($script:moving) { $script:moving = $false; Set-AnimRate }; return } # 被抓著、抖動中、清單開著：先不走
+	if ($script:down -or $script:pd -or $shake.Enabled -or $panel.Visible -or (Pet-Asleep)) { if ($script:moving) { $script:moving = $false; Set-AnimRate }; return } # 被抓著、抖動中、清單開著：先不走
 	$w = [System.Windows.Forms.Screen]::FromControl($iconForm).WorkingArea
 	$now = [Environment]::TickCount
 	$goHome = ($script:items.Count -gt 0)
@@ -1034,7 +1043,7 @@ function Take-Shot { # 把浮窗的所有小視窗先藏起來（才不會拍進
 	try { $script:shotProc = [System.Diagnostics.Process]::Start($psi) } catch { $script:shotProc = $null }
 	$shotTimer.Start()
 }
-$cam.Add_MouseUp({ param($s, $e) if ($e.Button -eq 'Left') { Take-Shot } })
+$cam.Add_MouseUp({ param($s, $e) if ($e.Button -eq 'Left' -and -not $script:pdMoved) { Take-Shot } })
 $iconForm.Add_LocationChanged({ if ($tray.Visible -or $item.Visible -or $cam.Visible) { Place-Tray } })
 
 # ---------- 遊戲（電子雞開著才有）：丟食物、追皮球、打怪獸 ----------
@@ -1411,8 +1420,29 @@ $dockF.Add_MouseUp({
 	$idx = $row * $DockCols + $col
 	if ($idx -lt $script:dockCells.Count) { Dock-Act ([string]$script:dockCells[$idx][1]) }
 })
-$play.Add_MouseUp({ param($s, $e) if ($e.Button -eq 'Left') { if ($panel.Visible) { $panel.Hide(); Update-Look }; Dock-Toggle } })
+$play.Add_MouseUp({ param($s, $e) if ($e.Button -eq 'Left' -and -not $script:pdMoved) { if ($panel.Visible) { $panel.Hide(); Update-Look }; Dock-Toggle } })
 
+# ---------- 任何地方按住左鍵都能拖著整個浮窗走（清單、標題、分頁、底部、對話框、小條、鈕；只點一下照舊）----------
+$script:pd = $null; $script:pdMoved = $false; $script:pdStart = $null
+function Attach-Drag($c) {
+	$c.Add_MouseDown({ param($s, $e) if ($e.Button -eq 'Left') { $script:pd = [System.Windows.Forms.Cursor]::Position; $script:pdMoved = $false; $script:pdStart = $iconForm.Location } })
+	$c.Add_MouseMove({ param($s, $e)
+		if (-not $script:pd -or $e.Button -ne 'Left') { return }
+		$p = [System.Windows.Forms.Cursor]::Position
+		$dx = $p.X - $script:pd.X; $dy = $p.Y - $script:pd.Y
+		if ([Math]::Abs($dx) + [Math]::Abs($dy) -gt 5) { $script:pdMoved = $true }
+		if ($script:pdMoved) {
+			$iconForm.Location = New-Object System.Drawing.Point(($script:pdStart.X + $dx), ($script:pdStart.Y + $dy))
+			Place-Around; Place-Tray; if ($petBubble.Visible) { Place-PetBubble }
+		}
+	})
+	$c.Add_MouseUp({ param($s, $e)
+		if ($e.Button -ne 'Left' -or -not $script:pd) { return }
+		$script:pd = $null
+		if ($script:pdMoved) { $script:set.x = $iconForm.Left; if (-not $script:set.walk) { $script:set.y = $iconForm.Top }; Save-Settings }
+	})
+}
+foreach ($dc in @($panel, $head, $tabs, $foot, $hint, $list, $bubble, $bl, $petBubble, $pl, $tray, $cam, $play)) { if ($dc) { Attach-Drag $dc } }
 # ---------- 啟動：每 3 秒讀狀態、每 6 秒叫 node 掃一次所有對話 ----------
 $script:scanProc = $null
 function Run-Scan {

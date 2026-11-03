@@ -5,19 +5,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { DATA } from './lib.mjs';
 
 const CRED = path.join(process.env.CLAUDE_DIR || path.join(os.homedir(), '.claude'), '.credentials.json');
 const readToken = () => { const o = JSON.parse(fs.readFileSync(CRED, 'utf8')).claudeAiOauth || {}; return o.accessToken ? o : null; };
 
 async function main() {
-	let o = readToken();
+	const o = readToken();
 	if (!o) return;
-	if (o.expiresAt && o.expiresAt < Date.now() + 60000) { // 快過期：叫 claude 自己刷新一次（它用到就會換新 token），再讀
-		try { execFileSync(process.platform === 'win32' ? 'claude.cmd' : 'claude', ['auth', 'status'], { stdio: 'ignore', timeout: 20000, shell: process.platform === 'win32' }); } catch { /* 刷新不了就用舊的試試 */ }
-		o = readToken() || o;
-	}
+	if (o.expiresAt && o.expiresAt < Date.now()) return; // token 約 8 小時就過期；只有終端機版 claude 用到時才會換新，這支不去動登入檔，過期就先不更新（浮窗顯示 ~）
 	const r = await fetch('https://api.anthropic.com/api/oauth/usage', { headers: { Authorization: 'Bearer ' + o.accessToken, 'anthropic-beta': 'oauth-2025-04-20' }, signal: AbortSignal.timeout(15000) });
 	if (!r.ok) return;
 	const j = await r.json();
