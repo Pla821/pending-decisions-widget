@@ -241,7 +241,27 @@ $iconForm.Size = New-Object System.Drawing.Size($IconBox, $IconBox)
 $wa = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
 $px = if ($null -ne $script:set.x) { [int]$script:set.x } else { $wa.Right - $IconBox - 24 }
 $py = if ($null -ne $script:set.y) { [int]$script:set.y } else { $wa.Bottom - $IconBox - 60 }
+# 存起來的位置不保證還在畫面上：換解析度、拔掉外接螢幕、或被拖到工作列下面之後，
+# 直接照用就會整隻看不到（2026-11-04 實際遇到：小橘常常掉到畫面以下）。
+# 先找涵蓋這個點的螢幕，都不涵蓋就回主螢幕，再把座標夾回該螢幕的可用範圍。
+# 下緣容許 $RunwayPad，跟 Runway-Y 同值，免得把走路模式的正常站位往上推。
+$RunwayPad = 16
+$pt0 = New-Object System.Drawing.Point($px, $py)
+$scr0 = [System.Windows.Forms.Screen]::AllScreens | Where-Object { $_.WorkingArea.Contains($pt0) } | Select-Object -First 1
+if (-not $scr0) { $scr0 = [System.Windows.Forms.Screen]::PrimaryScreen }
+$w0 = $scr0.WorkingArea
+$px = [Math]::Min([Math]::Max($px, $w0.Left), [Math]::Max($w0.Left, $w0.Right - $IconBox))
+$py = [Math]::Min([Math]::Max($py, $w0.Top), [Math]::Max($w0.Top, $w0.Bottom - $IconBox + $RunwayPad))
 $iconForm.Location = New-Object System.Drawing.Point($px, $py)
+function Snap-OnScreen { # 把浮窗夾回畫面內。拖到畫面外放開會彈回來，也保證不會把看不到的座標存起來
+	$pt1 = New-Object System.Drawing.Point($iconForm.Left, $iconForm.Top)
+	$s1 = [System.Windows.Forms.Screen]::AllScreens | Where-Object { $_.WorkingArea.Contains($pt1) } | Select-Object -First 1
+	if (-not $s1) { $s1 = [System.Windows.Forms.Screen]::FromControl($iconForm) }
+	$w1 = $s1.WorkingArea
+	$nx1 = [Math]::Min([Math]::Max($iconForm.Left, $w1.Left), [Math]::Max($w1.Left, $w1.Right - $IconBox))
+	$ny1 = [Math]::Min([Math]::Max($iconForm.Top, $w1.Top), [Math]::Max($w1.Top, $w1.Bottom - $IconBox + 16))
+	if ($nx1 -ne $iconForm.Left -or $ny1 -ne $iconForm.Top) { $iconForm.Location = New-Object System.Drawing.Point($nx1, $ny1) }
+}
 $script:frames = @(); $script:idleFrames = @(); $script:badgeShown = -1; $script:fIdx = 0; $script:fCache = @{}
 $script:curBmp = $null; $script:iconAlpha = 255; $script:moving = $false; $script:fxUntil = 0; $script:fxKind = ''
 $script:shrink = 0.0; $script:collapsed = $false; $script:lastActive = [Environment]::TickCount; $script:nextIdleAct = [Environment]::TickCount + 12000; $script:panelAt = [Environment]::TickCount # 沒人理就慢慢縮小、把小工具收起來；滑鼠移上去或有新通知就展開
@@ -634,7 +654,7 @@ $iconForm.Add_MouseMove({ param($s, $e)
 $iconForm.Add_MouseUp({ param($s, $e)
 	if ($e.Button -ne 'Left') { return }
 	if ($script:fight) { if (-not $script:moved) { Fight-Guard }; $script:down = $null; $script:moved = $false; return } # 打架時點小橘＝閃躲
-	if ($script:moved) { $script:set.x = $iconForm.Left; $script:set.y = $iconForm.Top; $script:set.perch = ([Math]::Abs($iconForm.Top - (Runway-Y)) -gt 30); Save-Settings } # 畫面任何位置都能放；走路模式下拖離跑道＝牠就停在那裡不亂走，拖回跑道附近才繼續走
+	if ($script:moved) { Snap-OnScreen; $script:set.x = $iconForm.Left; $script:set.y = $iconForm.Top; $script:set.perch = ([Math]::Abs($iconForm.Top - (Runway-Y)) -gt 30); Save-Settings } # 畫面任何位置都能放；走路模式下拖離跑道＝牠就停在那裡不亂走，拖回跑道附近才繼續走
 	elseif ($script:set.pet -and $script:pet.sleeping) { Pet-Wake '早安～被你叫醒了！' } # 睡著時點一下牠＝叫醒（再點一下才開清單）
 	else { if ($panel.Visible) { $panel.Hide(); Update-Look } else { Show-Panel } }
 	$script:down = $null
@@ -1600,7 +1620,7 @@ function Attach-Drag($c) {
 	$c.Add_MouseUp({ param($s, $e)
 		if ($e.Button -ne 'Left' -or -not $script:pd) { return }
 		$script:pd = $null
-		if ($script:pdMoved) { $script:set.x = $iconForm.Left; if (-not $script:set.walk) { $script:set.y = $iconForm.Top }; Save-Settings }
+		if ($script:pdMoved) { Snap-OnScreen; $script:set.x = $iconForm.Left; if (-not $script:set.walk) { $script:set.y = $iconForm.Top }; Save-Settings }
 	})
 }
 foreach ($dc in @($panel, $head, $tabs, $foot, $hint, $list, $bubble, $bl, $petBubble, $pl, $tray, $cam, $play)) { if ($dc) { Attach-Drag $dc } }
