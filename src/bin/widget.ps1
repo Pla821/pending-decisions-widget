@@ -52,7 +52,7 @@ public class PopForm : Form {
 public class RowItem { public string Title; public string Label; public string Sub; public string Meta; public string Tag; public string Key; public string Extra; public Color LabelColor; }
 
 public class RowList : Control {
-	public List<RowItem> Items = new List<RowItem>();
+	List<RowItem> _items = new List<RowItem>(); public List<RowItem> Items { get { return _items; } set { _items = value ?? new List<RowItem>(); } } // 設成 null 也不會當掉
 	public int RowHeight = 62, Hover = -1, Scroll = 0;
 	public Color Back, Fore, Muted, Line, HoverBack;
 	public string EmptyTitle = "", EmptyText = "";
@@ -64,9 +64,9 @@ public class RowList : Control {
 	public RowList() {
 		SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
 	}
-	int MaxScroll() { return Math.Max(0, Items.Count * RowHeight - Height); }
+	int MaxScroll() { return Math.Max(0, (Items == null ? 0 : Items.Count) * RowHeight - Height); }
 	public int HitTest(int y) { return IndexAt(y); }
-	int IndexAt(int y) { int i = (y + Scroll) / RowHeight; return (i >= 0 && i < Items.Count) ? i : -1; }
+	int IndexAt(int y) { if (Items == null) return -1; int i = (y + Scroll) / RowHeight; return (i >= 0 && i < Items.Count) ? i : -1; }
 	public string LastError = "";
 	protected override void OnPaint(PaintEventArgs e) { try { PaintBody(e); } catch (Exception ex) { LastError = ex.ToString(); } } // 畫圖出一次錯就會永久變成紅色大叉叉：吞掉、記下原因，下次重畫
 	void PaintBody(PaintEventArgs e) {
@@ -499,7 +499,7 @@ function Tab-Rows { # 目前這個分頁要列的資料
 }
 function Rebuild-List {
 	$list.SingleClick = ($script:tab -ne 'pending')
-	$list.Items = (Tab-Rows)
+	$list.Items = @(Tab-Rows) # 沒有任何一列時 Tab-Rows 什麼都不回傳（會變成 null → 滑鼠一動清單就當掉），用 @() 保證是空清單
 	if ($script:listTab -ne $script:tab) { $list.Scroll = 0; $script:listTab = $script:tab } # 每 3 秒會重建一次：只有換分頁才回到最上面，不然捲到一半就彈回去
 	$em = Empty-Messages; $list.EmptyTitle = $em[0]; $list.EmptyText = $em[1]
 	$hint.Text = switch ($script:tab) { 'pending' { '雙擊＝開對話' } 'running' { '點＝跳到那個對話' } 'broken' { '點＝開對話＋複製' } 'sessions' { '點＝開對話' } 'projects' { '點＝開資料夾' } 'files' { '點一下＝找到檔案' } 'dirs' { '點一下＝開資料夾' } }
