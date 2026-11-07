@@ -5,6 +5,8 @@
 ## [未發布]
 
 ### 新增
+- 「全部重新啟動」改成一鍵叫醒：確認後在背景對每個中斷對話執行 claude -p --resume（一次最多 3 個、10 分鐘內不重叫），記錄在 dataestart.log。⚠️ 背景模式下未信任的工作區會忽略事先核准的權限，叫醒的對話多半只能回報進度。
+- 修正誤報：最後一筆是 system-reminder（例如 Linked sessions now）不再算「你說」而被當成中斷；掃描快取版本 v7。
 - 「中斷」分頁最上面多一列「▶ 全部重新啟動」：點它會複製 `/restart-broken`，貼到任一 Claude 對話送出，該對話會列出中斷名單、你確認後逐一傳「請從中斷處接著做」（一次最多 3 個、先查用量）。skill 放在 `extras/restart-broken-skill/SKILL.md`，複製到 `~.claudeskillsestart-broken` 才會生效。
 - 「建議任務」卡片（Claude 放出來、等你按「開始」的那種）也算待決定，小工具會通知並標「等你按開始」。判斷已處理：你按了開始（含桌面版對話檔的 `spawnedFrom.taskId`／`resolvedBackgroundTaskSuggestions`）、或 Claude 撤回，就會消失；放超過 7 天（或放卡片的對話檔 3 天沒動）不再追。你按 ✕ 關掉的卡片紀錄裡沒有痕跡，會留著到過期；可在清單列上按右鍵「知道了」單張關掉。
 - `config.json` 新增 `notify` 通知開關（`permission`／`question`／`wrapup`／`proposal`／`fable`／`usage`），預設全開、行為不變；寫 `false` 才關。hook（Windows 通知、手機推播）、掃描（清單與網頁清單）都生效；`usage` 由小工具讀（改完要重開小工具）。測試：`tests/notify-test.mjs`。

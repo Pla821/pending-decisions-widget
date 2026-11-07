@@ -48,7 +48,7 @@ function scanFile(p, size) { // → { pend: [{ id, at, questions, cwd, kind?, de
 				} else if (lb && lb.type === 'tool_result') { tail = { k: 'result', at, what: '工具剛跑完，還沒接著做' }; }
 				else if (typeof cc === 'string' && /^<(local-command|command-name|command-message)/.test(cc)) { /* 斜線指令的回音，不算你說話 */ }
 				else if (typeof cc === 'string' && cc.startsWith('<task-notification>')) { tail = { k: 'user', at, what: '背景工作通知進來了，還沒接著處理' }; }
-				else { const ut = typeof cc === 'string' ? cc : (Array.isArray(cc) ? cc.filter((b) => b.type === 'text').map((b) => b.text).join(' ') : ''); tail = { k: 'user', at, what: '你說：' + ut.replace(/\s+/g, ' ').slice(0, 100) }; }
+				else { const ut = typeof cc === 'string' ? cc : (Array.isArray(cc) ? cc.filter((b) => b.type === 'text').map((b) => b.text).join(' ') : ''); if (/^s*<system-reminder>/.test(ut)) { /* 系統提醒（例如「Linked sessions now」）不是你說話，也不代表對話被打斷 */ } else tail = { k: 'user', at, what: '你說：' + ut.replace(/\s+/g, ' ').slice(0, 100) }; }
 			}
 			if (j.type === 'user' && j.origin && j.origin.kind === 'human') { wrap = null; } // 你本人回了話＝收尾提問卡處理掉了
 		if (j.type === 'user' && j.message) {
@@ -143,7 +143,7 @@ try {
 			const p = path.join(dp, f), st = fs.statSync(p);
 			if (now - st.mtimeMs > FRESH) { continue; }
 			files++;
-			const key = st.mtimeMs + ':' + st.size + ':v6';
+			const key = st.mtimeMs + ':' + st.size + ':v7';
 			const c = cache[p];
 			const r = c && c.key === key && c.recent ? c : { key, ...scanFile(p, st.size) };
 			const pend = r.pend, sid = f.replace('.jsonl', '');

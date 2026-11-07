@@ -509,8 +509,9 @@ function Tab-Rows { # 目前這個分頁要列的資料
 		'running' { if ((Running-Count) -gt 0) { [void]$rows.Add((New-Row '先別關機' '提示' $T.accent ('還有 ' + (Running-Count) + ' 件在跑，現在關機會中斷它們' + $(if (@($script:recent.running | Where-Object { $_.fable }).Count -gt 0) { '（⚠ 有對話正在用 Fable）' } else { '' })) '' '' '')) }; if ($script:recent) { foreach ($x in @($script:recent.running)) { $sub = '正在：' + $(if ($x.doing) { [string]$x.doing } else { '（不明）' }); if ($x.fable) { $sub = '⚠ 正在用 Fable｜' + $sub }; [void]$rows.Add((New-Row ([string]$x.title) '跑著' $(if ($x.fable) { $T.accent } else { $T.amber }) $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $sub))) } }
 		# 背景程式也列在這頁（對話回完了、程式還在跑）
 		foreach ($w in @($script:workers)) { [void]$rows.Add((New-Row ([string]$w.title) '背景' $T.blue $(if ($w.sub -and $w.sub -ne $w.title) { [string]$w.sub } elseif ($w.dir) { Short-Dir ([string]$w.dir) } else { '（程式 ' + $w.pid + '）' }) (Age-Text ([double]$w.at)) ($(if ($ses = Find-WorkerSession $w) { 'ses:' + $ses } elseif ($w.dir) { 'dir:' + $w.dir } else { '' })) ("{0}`n{1}" -f $w.title, $w.cmd))) } }
-		'broken' { if ($script:recent) { if (@($script:recent.broken).Count -gt 0) { [void]$rows.Add((New-Row '▶ 全部重新啟動' '一鍵' $T.accent ('把下面 ' + @($script:recent.broken).Count + ' 個中斷的全部叫醒：點這一列 → 自動複製指令 → 貼到任一 Claude 對話按送出') '' 'restart-all' "把「中斷」的對話全部叫醒
-點這一列會複製 /restart-broken，貼到任一 Claude 對話按送出")) }; foreach ($x in @($script:recent.broken)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = '停在：' + $(if ($x.stopped) { [string]$x.stopped } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '停住了' $T.accent $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}`n它最後說：{3}" -f $x.title, $x.cwd, $sub, $x.said))) } } }
+		'broken' { if ($script:recent) { if (@($script:recent.broken).Count -gt 0) { [void]$rows.Add((New-Row '▶ 全部重新啟動' '一鍵' $T.accent ('一鍵叫醒下面中斷的對話（一次最多 3 個，會先問你；在背景接著做，不會跳視窗）') '' 'restart-all' "把「中斷」的對話全部叫醒
+點這一列：確認後，在背景替每個中斷的對話送「請從中斷處接著做」
+一次最多 3 個；結果記在 data 資料夾的 restart.log")) }; foreach ($x in @($script:recent.broken)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = '停在：' + $(if ($x.stopped) { [string]$x.stopped } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '停住了' $T.accent $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}`n它最後說：{3}" -f $x.title, $x.cwd, $sub, $x.said))) } } }
 		'sessions' { if ($script:recent) { foreach ($x in @($script:recent.sessions)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = (@($proj, [string]$x.last) | Where-Object { $_ }) -join '  ·  '; [void]$rows.Add((New-Row ([string]$x.title) '對話' $T.blue $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $x.last))) } } }
 		'projects' { if ($script:recent) { foreach ($x in @($script:recent.projects)) { $leaf = Split-Path ([string]$x.path) -Leaf; if (-not $leaf) { $leaf = [string]$x.path }; [void]$rows.Add((New-Row $leaf ("{0} 個對話" -f $x.count) $T.accent ((@($x.titles) | Where-Object { $_ }) -join '、') (Age-Text ([double]$x.at)) ([string]$x.path) ([string]$x.path))) } } }
 		'files' { if ($script:recent) { foreach ($x in @($script:recent.files)) { [void]$rows.Add((New-Row ([System.IO.Path]::GetFileName([string]$x.path)) '檔案' $T.accent (Short-Dir ([System.IO.Path]::GetDirectoryName([string]$x.path))) (Age-Text ([double]$x.at)) ([string]$x.path) ([string]$x.path))) } } }
@@ -665,6 +666,42 @@ $iconForm.Add_MouseUp({ param($s, $e)
 $bl.Add_Click({ if (-not $script:pdMoved) { Show-Panel } })
 $btnHide.Add_Click({ $panel.Hide(); Update-Look })
 $btnWeb.Add_Click({ if (Test-Path $HtmlFile) { Start-Process $HtmlFile } })
+function Restart-AllBroken {
+	$exe = Join-Path $env:APPDATA 'npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe'
+	if (-not (Test-Path -LiteralPath $exe)) { Pet-Say '找不到 claude.exe，改用 /restart-broken' 6000; try { [System.Windows.Forms.Clipboard]::SetText('/restart-broken') } catch { }; return }
+	if (-not $script:wokeAt) { $script:wokeAt = @{} }
+	$now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+	$cand = New-Object System.Collections.ArrayList
+	foreach ($x in @($script:recent.broken)) {
+		if (-not $x.sid -or $x.run) { continue }
+		if ([string]$x.stopped -match '^你說：' -and [string]$x.stopped -match 'system-reminder') { continue }
+		if ($script:wokeAt.ContainsKey([string]$x.sid) -and ($now - $script:wokeAt[[string]$x.sid]) -lt 600000) { continue }
+		[void]$cand.Add($x)
+	}
+	if ($cand.Count -eq 0) { Pet-Say '沒有需要叫醒的（可能誤報、正在跑、或 10 分鐘內叫過）' 6000; return }
+	$pick = @($cand | Select-Object -First 3)
+	$names = ($pick | ForEach-Object { '・' + [string]$_.title }) -join [Environment]::NewLine
+	$more = if ($cand.Count -gt 3) { [Environment]::NewLine + '（另外還有 ' + ($cand.Count - 3) + ' 個，這次先不叫）' } else { '' }
+	$msg = '要在背景叫醒這 ' + $pick.Count + ' 個對話嗎？' + [Environment]::NewLine + [Environment]::NewLine + $names + $more + [Environment]::NewLine + [Environment]::NewLine + '每個都要重讀整段對話（花額度）；它們在背景接著做，沒有權限的動作會被擋住。'
+	if ([System.Windows.Forms.MessageBox]::Show($msg, '全部重新啟動', 'YesNo', 'Question') -ne 'Yes') { return }
+	$text = '剛剛好像斷線或中斷了。請先看紀錄，確認你上一步做到哪，已經做完的不要重做，沒做完的從那裡接著做，做完用一句話跟我說。'
+	$log = Join-Path $DataDir 'restart.log'
+	$ok = 0
+	foreach ($x in $pick) {
+		try {
+			$cwd = [string]$x.cwd
+			$pj = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.claude\projects') -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName ($x.sid + '.jsonl') } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+			if ($pj) { $m = Select-String -LiteralPath $pj -Pattern '"cwd":"((?:[^"\\]|\\.)*)"' -List | Select-Object -First 1; if ($m) { $cwd = ($m.Matches[0].Groups[1].Value -replace '\\\\', '\') } }
+			if (-not $cwd -or -not (Test-Path -LiteralPath $cwd)) { $cwd = $env:USERPROFILE }
+			$out = Join-Path $DataDir ('restart_' + ([string]$x.sid).Substring(0, 8) + '.out')
+			[void](Start-Process -FilePath $exe -ArgumentList ('-p "' + $text + '" --resume ' + $x.sid + ' --output-format json') -WorkingDirectory $cwd -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError ($out + '.err'))
+			$script:wokeAt[[string]$x.sid] = $now
+			Add-Content -LiteralPath $log -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' 叫醒 ' + $x.sid + ' ' + [string]$x.title + ' @ ' + $cwd)
+			$ok++
+		} catch { Add-Content -LiteralPath $log -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' 失敗 ' + $x.sid + ' ' + $_.Exception.Message) }
+	}
+	Pet-Say ('已在背景叫醒 ' + $ok + ' 個，幾分鐘後看「停住了」有沒有少') 9000
+}
 function Open-Session([string]$local) { if ($local) { Start-Process ("claude://claude.ai/epitaxy/" + $local) } elseif (Test-Path $HtmlFile) { Start-Process $HtmlFile } } # CLI 使用者沒有桌面版連結：改開網頁清單
 function Reveal-Path([string]$p, [bool]$isDir) { # 在檔案總管裡找到它；檔案／資料夾已經不在了就開到還在的最近一層
 	if (-not $p) { return }
@@ -695,7 +732,7 @@ $list.Add_RowActivated({
 	switch ($script:tab) {
 		'pending' { Open-Session $row.Key }
 		'broken' { # 把「請從中斷的地方接著做」放進剪貼簿，再打開那個對話；你只要貼上、按送出
-			if ([string]$row.Key -eq 'restart-all') { try { [System.Windows.Forms.Clipboard]::SetText('/restart-broken') } catch { }; Pet-Say '已複製 /restart-broken：貼到任一 Claude 對話，按送出' 8000; return }
+			if ([string]$row.Key -eq 'restart-all') { Restart-AllBroken; return }
 				$b = @($script:recent.broken)[$list.ActivatedIndex - 1]
 			$txt = '剛剛好像斷線或中斷了。請先看紀錄，確認你上一步做到哪（我這邊看到最後停在：' + $(if ($b -and $b.stopped) { [string]$b.stopped } else { '不明' }) + '），已經做完的不要重做，沒做完的從那裡接著做，做完用一句話跟我說。'
 			try { [System.Windows.Forms.Clipboard]::SetText($txt) } catch { }
