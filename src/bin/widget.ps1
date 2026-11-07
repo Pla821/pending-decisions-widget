@@ -509,7 +509,8 @@ function Tab-Rows { # 目前這個分頁要列的資料
 		'running' { if ((Running-Count) -gt 0) { [void]$rows.Add((New-Row '先別關機' '提示' $T.accent ('還有 ' + (Running-Count) + ' 件在跑，現在關機會中斷它們' + $(if (@($script:recent.running | Where-Object { $_.fable }).Count -gt 0) { '（⚠ 有對話正在用 Fable）' } else { '' })) '' '' '')) }; if ($script:recent) { foreach ($x in @($script:recent.running)) { $sub = '正在：' + $(if ($x.doing) { [string]$x.doing } else { '（不明）' }); if ($x.fable) { $sub = '⚠ 正在用 Fable｜' + $sub }; [void]$rows.Add((New-Row ([string]$x.title) '跑著' $(if ($x.fable) { $T.accent } else { $T.amber }) $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $sub))) } }
 		# 背景程式也列在這頁（對話回完了、程式還在跑）
 		foreach ($w in @($script:workers)) { [void]$rows.Add((New-Row ([string]$w.title) '背景' $T.blue $(if ($w.sub -and $w.sub -ne $w.title) { [string]$w.sub } elseif ($w.dir) { Short-Dir ([string]$w.dir) } else { '（程式 ' + $w.pid + '）' }) (Age-Text ([double]$w.at)) ($(if ($ses = Find-WorkerSession $w) { 'ses:' + $ses } elseif ($w.dir) { 'dir:' + $w.dir } else { '' })) ("{0}`n{1}" -f $w.title, $w.cmd))) } }
-		'broken' { if ($script:recent) { foreach ($x in @($script:recent.broken)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = '停在：' + $(if ($x.stopped) { [string]$x.stopped } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '停住了' $T.accent $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}`n它最後說：{3}" -f $x.title, $x.cwd, $sub, $x.said))) } } }
+		'broken' { if ($script:recent) { if (@($script:recent.broken).Count -gt 0) { [void]$rows.Add((New-Row '▶ 全部重新啟動' '一鍵' $T.accent ('把下面 ' + @($script:recent.broken).Count + ' 個中斷的全部叫醒：點這一列 → 自動複製指令 → 貼到任一 Claude 對話按送出') '' 'restart-all' "把「中斷」的對話全部叫醒
+點這一列會複製 /restart-broken，貼到任一 Claude 對話按送出")) }; foreach ($x in @($script:recent.broken)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = '停在：' + $(if ($x.stopped) { [string]$x.stopped } else { '（不明）' }); [void]$rows.Add((New-Row ([string]$x.title) '停住了' $T.accent $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}`n它最後說：{3}" -f $x.title, $x.cwd, $sub, $x.said))) } } }
 		'sessions' { if ($script:recent) { foreach ($x in @($script:recent.sessions)) { $proj = if ($x.cwd) { Split-Path ([string]$x.cwd) -Leaf } else { '' }; $sub = (@($proj, [string]$x.last) | Where-Object { $_ }) -join '  ·  '; [void]$rows.Add((New-Row ([string]$x.title) '對話' $T.blue $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $x.last))) } } }
 		'projects' { if ($script:recent) { foreach ($x in @($script:recent.projects)) { $leaf = Split-Path ([string]$x.path) -Leaf; if (-not $leaf) { $leaf = [string]$x.path }; [void]$rows.Add((New-Row $leaf ("{0} 個對話" -f $x.count) $T.accent ((@($x.titles) | Where-Object { $_ }) -join '、') (Age-Text ([double]$x.at)) ([string]$x.path) ([string]$x.path))) } } }
 		'files' { if ($script:recent) { foreach ($x in @($script:recent.files)) { [void]$rows.Add((New-Row ([System.IO.Path]::GetFileName([string]$x.path)) '檔案' $T.accent (Short-Dir ([System.IO.Path]::GetDirectoryName([string]$x.path))) (Age-Text ([double]$x.at)) ([string]$x.path) ([string]$x.path))) } } }
@@ -694,7 +695,8 @@ $list.Add_RowActivated({
 	switch ($script:tab) {
 		'pending' { Open-Session $row.Key }
 		'broken' { # 把「請從中斷的地方接著做」放進剪貼簿，再打開那個對話；你只要貼上、按送出
-			$b = @($script:recent.broken)[$list.ActivatedIndex]
+			if ([string]$row.Key -eq 'restart-all') { try { [System.Windows.Forms.Clipboard]::SetText('/restart-broken') } catch { }; Pet-Say '已複製 /restart-broken：貼到任一 Claude 對話，按送出' 8000; return }
+				$b = @($script:recent.broken)[$list.ActivatedIndex - 1]
 			$txt = '剛剛好像斷線或中斷了。請先看紀錄，確認你上一步做到哪（我這邊看到最後停在：' + $(if ($b -and $b.stopped) { [string]$b.stopped } else { '不明' }) + '），已經做完的不要重做，沒做完的從那裡接著做，做完用一句話跟我說。'
 			try { [System.Windows.Forms.Clipboard]::SetText($txt) } catch { }
 			Open-Session $row.Key
