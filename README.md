@@ -54,6 +54,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -Autostart
 - 安裝程式會：複製程式到 `~\.claude\pending-decisions\`、**先備份**你的 `settings.json` 再把 5 個 hook **合併**進去（不動你原有的任何設定與 hook、可重複執行）、啟動浮窗。
 - 已經開著的 Claude 對話要重開，才會載入新的 hook。不過**浮窗本身不靠 hook 也看得到選項框與提問卡**（它直接掃對話紀錄）；hook 負責即時的 Windows 通知與「權限確認」。
 - 之前用過沒打包的舊版 `decision-log.mjs`？加 `-ReplaceLegacy` 一起換掉，避免重複通知。
+- 防毒擋住 `install.ps1` 的電腦（例如公司電腦）：不要硬裝，改看 [docs/另一台電腦怎麼裝與更新.md](docs/另一台電腦怎麼裝與更新.md)（用 `start-widget.cmd`、`install-startup.cmd`，hook 手動接）。
+- 想知道什麼時候會跳通知、怎麼算處理掉、哪些會誤報漏報：[docs/通知時機.md](docs/通知時機.md)。
 
 ### 移除
 
@@ -105,6 +107,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\pending-decis
 {
   "toast": true,
   "theme": "auto",
+  "notify": { "permission": true, "question": true, "wrapup": true, "proposal": true, "fable": true, "usage": true },
   "dataDir": null,
   "claudeDir": null,
   "sessionsDir": null
@@ -113,7 +116,8 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\pending-decis
 
 | 欄位 | 說明 |
 |---|---|
-| `toast` | `false` 關掉 Windows 通知 |
+| `toast` | `false` 關掉 Windows 通知（只關這個；手機推播不受影響） |
+| `notify` | 各種通知的開關，**預設全開**（不寫這個欄位＝全開）；只有明確寫 `false` 才關：`permission`（要你允許）、`question`（選項框）、`wrapup`（收尾提問卡）、`proposal`（建議任務卡片）、`fable`（Fable 提醒）、`usage`（額度警示）。關掉的種類不會出現在小工具與網頁清單；`permission`／`question`／`wrapup` 另外不跳 Windows 通知、不推手機。`usage` 是小工具讀的，改完要重開小工具。各種通知何時跳、何時消失見 [docs/通知時機.md](docs/通知時機.md) |
 | `theme` | `auto`（跟 Windows）／`light`／`dark` |
 | `ntfy` | 手機推播（選填，見下方「手機通知與核准」）：`{ "topic": "自己取一個難猜的名字" }`；另有 `server`、`detail`、`approve`、`awaySeconds`、`waitSeconds`、`onlyWhenAway` |
 | `dataDir` | 清單、設定、圖放哪，預設 `<安裝資料夾>\data` |
@@ -163,6 +167,7 @@ Claude Code 對話 ──寫入──▶ ~/.claude/projects/*/*.jsonl      （�
 
 ```powershell
 node tests/scan-test.mjs                                   # 掃描／三種待決定的冒煙測試（用假紀錄，不碰你的 ~/.claude）
+node tests/notify-test.mjs                                 # notify 通知開關、建議任務卡片已處理判斷（用假紀錄）
 powershell -File tests/install-test.ps1                    # 安裝／重複安裝／移除，全部在暫存資料夾
 node tools/make-demo.mjs demo                              # 建示範環境（假對話），試用或拍截圖
 powershell -File tools/make-icons.ps1                      # 重新產生內建圖示

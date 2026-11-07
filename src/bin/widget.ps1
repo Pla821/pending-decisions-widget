@@ -545,7 +545,7 @@ function Usage-Pct { # → @{ pct; label } 取兩個窗口較高的；資料太�
 	} catch { return $null }
 }
 function Usage-Items {
-	$b = Usage-Pct
+	$b = $(if ($Config -and $Config.notify -and $Config.notify.usage -eq $false) { $null } else { Usage-Pct }) # config.json 的 notify.usage 設 false＝關掉額度警示（改完要重開浮窗）
 	if (-not $b -or $b.pct -lt 90) { $script:usageSince[90] = 0; $script:usageSince[98] = 0; return @() }
 	$nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 	$lvl = if ($b.pct -ge 98) { 2 } else { 1 }

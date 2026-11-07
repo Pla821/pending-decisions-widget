@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
 import https from 'node:https';
-import { HERE, DATA, HTML, CONFIG, DAY, loadState, saveState, writeHtml, sessionInfo, fallbackTitle, toolSig, toolDetail, settlePermissions, logError } from './lib.mjs';
+import { HERE, DATA, HTML, CONFIG, DAY, notifyOn, loadState, saveState, writeHtml, sessionInfo, fallbackTitle, toolSig, toolDetail, settlePermissions, logError } from './lib.mjs';
 
 function readStdin() {
 	try { return JSON.parse(fs.readFileSync(0, 'utf8')); } catch { return null; }
@@ -147,6 +147,7 @@ try {
 	const isWrap = /wrap_up$/.test(inp.tool_name || '');
 	if (isWrap && !(ev === 'PreToolUse' && inp.tool_input && inp.tool_input.ask)) { process.exit(0); } // 提問卡工具呼叫馬上就回傳，Post 事件不代表你回答了
 	if (!isPerm && !isWrap && inp.tool_name !== 'AskUserQuestion') { process.exit(0); }
+		if (!notifyOn(isPerm ? 'permission' : isWrap ? 'wrapup' : 'question')) { process.exit(0); } // config.json 的 notify 關掉這一種：不記錄、不跳通知、不推手機
 	fs.mkdirSync(DATA, { recursive: true });
 	const st = loadState();
 	const s = sessionInfo(inp.session_id) || { local: '', title: '' };

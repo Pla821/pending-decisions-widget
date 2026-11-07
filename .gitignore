@@ -1,4 +1,5 @@
 # 你的資料（對話標題、問題文字、設定、你放的圖）——絕不上傳
+config.json
 data/
 src/data/
 demo/

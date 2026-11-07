@@ -5,7 +5,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "test": "node tests/scan-test.mjs && powershell -NoProfile -ExecutionPolicy Bypass -File tests/install-test.ps1"
+    "test": "node tests/scan-test.mjs && node tests/notify-test.mjs && powershell -NoProfile -ExecutionPolicy Bypass -File tests/install-test.ps1"
   },
   "engines": { "node": ">=18" }
 }

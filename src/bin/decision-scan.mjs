@@ -4,7 +4,7 @@
 // 永遠 exit 0、不印東西；出錯寫進 data/error.log。
 import fs from 'node:fs';
 import path from 'node:path';
-import { DATA, PROJECTS, CACHE, DAY, loadState, saveState, writeStatus, writeHtml, sessionInfo, settlePermissions, logError } from './lib.mjs';
+import { DATA, PROJECTS, CACHE, DAY, notifyOn, loadState, saveState, writeStatus, writeHtml, sessionInfo, resolvedTaskIds, settlePermissions, logError } from './lib.mjs';
 
 const TAIL = 600 * 1024;         // 只讀每個檔最後 600KB
 const FRESH = 3 * DAY;           // 只看 3 天內有動過的對話
@@ -149,10 +149,10 @@ try {
 			const pend = r.pend, sid = f.replace('.jsonl', '');
 			nextCache[p] = { key, pend, recent: r.recent, model: r.model, cwd: r.cwd, tail: r.tail, lastText: r.lastText, firstPrompt: r.firstPrompt };
 				if (r.firstPrompt) { firstPrompts.push({ sid: f.replace('.jsonl', ''), text: r.firstPrompt }); }
-			for (const a of pend) { found.push({ ...a, sid }); }
+			for (const a of pend) { if (notifyOn(a.kind === 'wrapup' ? 'wrapup' : a.kind === 'proposal' ? 'proposal' : 'question')) { found.push({ ...a, sid }); } } // config.json 的 notify 關掉的種類不進清單（快取存的是全部，改設定立刻生效）
 			// Fable 提醒：這個對話最近 20 分鐘內是 Fable 在回（Fable 走另一個額度池）→ 放進待決定，問你要不要繼續；你按「知道了」之後 12 小時內不再提醒
 			const cur = sessionInfo(sid), stillFable = !cur || !cur.model || /fable/i.test(cur.model); // 桌面版記的「現在設定的模型」已經不是 Fable＝你已經換掉了，不要再提醒
-				if (r.model && stillFable && /fable/i.test(r.model.name) && now - r.model.at < 20 * 60000 && !(dismissed[sid] > now)) {
+				if (notifyOn('fable') && r.model && stillFable && /fable/i.test(r.model.name) && now - r.model.at < 20 * 60000 && !(dismissed[sid] > now)) {
 				found.push({ id: 'fable:' + sid, kind: 'fable', sid, at: r.model.at, cwd: r.cwd || '', detail: r.model.name, questions: [{ question: '這個對話正在用 Fable（' + r.model.name + '）。要繼續用嗎？不用的話請在那個對話換回平常的模型。', options: [] }] });
 			}
 			const lastRun = [...r.recent.runs].reverse().find((x) => x.named), lastFile = r.recent.files[r.recent.files.length - 1];
@@ -164,10 +164,11 @@ try {
 			for (const x of r.recent.dirs) { dirsAll.push({ ...x, sid }); }
 		}
 	}
+	const doneTaskIds = resolvedTaskIds();
 	for (let k = found.length - 1; k >= 0; k--) { // 建議任務卡片：有別的對話的第一句話就是這張卡的任務＝已經按過「開始」；卡片放超過 7 天也會過期
 		const x = found[k];
 		if (x.kind !== 'proposal') { continue; }
-		if (now - x.at > 7 * DAY || dismissed[x.id] > now || firstPrompts.some((fp) => fp.sid !== x.sid && x.headKey && fp.text.indexOf(x.headKey) >= 0)) { found.splice(k, 1); }
+		if (now - x.at > 7 * DAY || dismissed[x.id] > now || (x.taskId && doneTaskIds.has(x.taskId)) || firstPrompts.some((fp) => fp.sid !== x.sid && x.headKey && fp.text.indexOf(x.headKey) >= 0)) { found.splice(k, 1); }
 	}
 	fs.writeFileSync(CACHE, JSON.stringify(nextCache), 'utf8');
 	writeRecent(runsAll, filesAll, dirsAll, sessAll);

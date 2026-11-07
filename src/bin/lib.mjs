@@ -15,6 +15,9 @@ function readJson(p, fallback) {
 
 // config.json 可設：dataDir／claudeDir／sessionsDir／toast。沒設的都自動偵測。
 export const CONFIG = readJson(path.join(ROOT, 'config.json'), {});
+// config.json 的 notify：各種通知的開關，只有明確寫 false 才關；沒寫、寫別的值都當作開（預設全開）。
+// 可用的鍵：permission（要你允許）／question（選項框）／wrapup（收尾提問卡）／proposal（建議任務卡片）／fable（Fable 提醒）／usage（額度警示，小工具讀）
+export const notifyOn = (kind) => !(CONFIG.notify && typeof CONFIG.notify === 'object' && CONFIG.notify[kind] === false);
 export const DATA = process.env.PDW_DATA || CONFIG.dataDir || path.join(ROOT, 'data');
 export const CLAUDE_DIR = process.env.PDW_CLAUDE_DIR || CONFIG.claudeDir || path.join(os.homedir(), '.claude');
 export const PROJECTS = path.join(CLAUDE_DIR, 'projects');
@@ -44,6 +47,8 @@ function sessionRoots() {
 	return out;
 }
 let sessionIndex = null;
+const doneTasks = new Set(); // 桌面版記下「這張建議任務卡已經處理掉」的 task_id：被按了開始（新對話的 spawnedFrom.taskId）、或放卡片的對話自己記的 resolvedBackgroundTaskSuggestions
+export function resolvedTaskIds() { sessionInfo('-'); return doneTasks; }
 export function sessionInfo(cli) { // cliSessionId → { local, title, archived, model（桌面版現在設定的模型） }；找不到回傳 null
 	if (!sessionIndex) {
 		sessionIndex = new Map();
@@ -58,6 +63,10 @@ export function sessionInfo(cli) { // cliSessionId → { local, title, archived,
 					if (ent.isDirectory()) { stack.push(p); continue; }
 					if (!ent.name.startsWith('local_') || !ent.name.endsWith('.json')) { continue; }
 					const j = readJson(p, null);
+					if (j) { // 建議任務卡片的處理紀錄（桌面版自己寫的，不用等放卡片的對話下一輪才知道）
+						try { const sf = typeof j.spawnedFrom === 'string' ? JSON.parse(j.spawnedFrom) : j.spawnedFrom; if (sf && sf.taskId) { doneTasks.add(String(sf.taskId)); } } catch { /* 沒有就算了 */ }
+						try { const rs = typeof j.resolvedBackgroundTaskSuggestions === 'string' ? JSON.parse(j.resolvedBackgroundTaskSuggestions) : j.resolvedBackgroundTaskSuggestions; if (rs && typeof rs === 'object') { for (const k of Object.keys(rs)) { doneTasks.add(k); } } } catch { /* 沒有就算了 */ }
+					}
 					if (j && j.cliSessionId) {
 						sessionIndex.set(j.cliSessionId, { local: j.sessionId || ent.name.replace('.json', ''), title: j.title || '', archived: !!j.isArchived, model: String(j.model || '') });
 					}
