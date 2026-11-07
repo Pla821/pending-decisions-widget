@@ -115,6 +115,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\pending-decis
 |---|---|
 | `toast` | `false` 關掉 Windows 通知 |
 | `theme` | `auto`（跟 Windows）／`light`／`dark` |
+| `ntfy` | 手機推播（選填，見下方「手機通知與核准」）：`{ "topic": "自己取一個難猜的名字" }`；另有 `server`、`detail`、`approve`、`awaySeconds`、`waitSeconds`、`onlyWhenAway` |
 | `dataDir` | 清單、設定、圖放哪，預設 `<安裝資料夾>\data` |
 | `claudeDir` | Claude 設定資料夾，預設 `%USERPROFILE%\.claude`（掃描 `projects\*\*.jsonl`） |
 | `sessionsDir` | Claude 桌面版對話中繼檔資料夾，預設自動找 `%LOCALAPPDATA%\Claude-Data\*\claude-code-sessions`；沒有就降級 |
@@ -172,3 +173,41 @@ powershell -File tools/make-icons.ps1                      # 重新產生內建�
 ## 授權
 
 [MIT](LICENSE)。內建圖示為本專案以向量繪製，可自由使用。
+
+## 手機通知與核准（選填，用 ntfy）
+
+1. 手機裝 [ntfy](https://ntfy.sh) app，訂閱你自己取的主題名稱（要又長又難猜，例如 `pdw-` 加 24 個隨機字元；知道主題名稱的人就看得到通知）。
+2. 在 `config.json` 加上 `"ntfy": { "topic": "你的主題名稱" }`。之後每次有待決定，手機會收到通知。預設只送標題與件數，不含對話名稱和指令內容；加 `"detail": true` 才附內文。
+3. **在手機上直接允許／拒絕**（`"approve": true`）：人不在電腦前（`awaySeconds` 預設 60 秒沒動滑鼠鍵盤）時，權限確認的通知會帶「允許」「拒絕」按鈕，並附上工具與指令內容（所以會經過 ntfy 伺服器）。最多等 `waitSeconds`（預設 100）秒，沒人按就維持原本在電腦上跳出視窗。按鈕送到另一個主題 `<topic>-r`，內含一次性碼。
+   - 要同時把 settings.json 裡 PermissionRequest 這個 hook 的 timeout 調到 130 以上（重跑 install.ps1 會自動設好）。
+   - ⚠️ 安全：任何知道主題名稱的人都能代你按「允許」，等於能在你的電腦上執行指令。主題名稱當密碼保管；要更安全請自架 ntfy 並開存取控制。
+   - 只有「權限確認」能在手機上回答；選項框和收尾提問卡只會通知。
+
+## 手機通知與核准（選填，用自己的飛傳伺服器「待決定信箱」）
+
+不想經過第三方（ntfy）時，可以把待決定推到自己的[飛傳](https://github.com/Pla821/feichuan)伺服器（`pd-mailbox`，記憶體存放、不落地、不記內容）。手機開 `/pd/` 頁（可加到主畫面），按「允許／拒絕」；Android Chrome 的鎖屏推播通知上也有這兩顆鈕。
+
+`config.json` 加（**預設關閉**，沒有 `push` 就完全不連網）：
+
+```json
+"push": { "provider": "feichuan", "server": "https://feichuan.onrender.com", "secret": "<PD_SECRET，≥32 隨機字元>",
+          "approve": true, "awaySeconds": 60, "waitSeconds": 100, "onlyWhenAway": true }
+```
+
+| 欄位 | 說明 |
+|---|---|
+| `server` | 必須是 `https://…`（測試時可用 `http://localhost`／`127.0.0.1`）；其他 http 位址整個停用，密碼不會外送 |
+| `secret` | 跟伺服器環境變數 `PD_SECRET` 一樣；少於 32 字元就停用。只放在 `Authorization` header，不寫 log、不進網址 |
+| `approve` | `true` 才會等手機回答，並在通知附上工具與指令內容；`false`（預設）只推「共 N 件」標題，不含內容 |
+| `onlyWhenAway` / `awaySeconds` | 預設只在人離開電腦 ≥60 秒（沿用 `idleSeconds()`）才推、才等；`false`＝不管有沒有人都推 |
+| `waitSeconds` | 最多等幾秒（5～100）；每段 25 秒長輪詢，免得被代理切線 |
+| `detail` | `true` 才讓純通知（非核准）也附對話名稱／內文 |
+
+行為：沒人回、逾時、密碼錯、伺服器不通、回傳不是 `allow`／`deny`，一律**不輸出＝不放行**，電腦上照常跳出原本的允許視窗。逾時後會通知伺服器撤掉手機上的卡片。飛傳與 ntfy 同時設定時，核准走飛傳。
+
+步驟（金鑰與 Render 環境變數的設定見飛傳 repo 的 README「待決定信箱」）：
+1. 把 settings.json 裡 PermissionRequest hook 的 `timeout` 改成 ≥130（重跑 `install.ps1` 會自動設好；hook 最晚 118 秒收尾）。
+2. 手機開 `https://<你的飛傳>/pd/#<PD_SECRET>` 一次完成配對（fragment 不會送到伺服器；配對後網址會被清掉），再按「開啟鎖屏通知」。
+3. ⚠️ **安全**：任何拿到 `PD_SECRET` 的人都能代你按「允許」＝能在你的電腦上執行指令。請當銀行密碼保管，不要貼進對話或 repo；懷疑外洩就換掉伺服器的 `PD_SECRET` 和這裡的 `secret`。
+4. iPhone：沒有通知按鈕，且必須先「分享 → 加入主畫面」才收得到推播（iOS 16.4+）；加到主畫面後是獨立儲存空間，要在頁面裡貼一次密碼。點通知開頁面再按。
+5. 免費 Render 休眠／重啟會清掉信箱和推播訂閱：手機頁每次開啟會自動重新登記；建議用 UptimeRobot 之類定時 ping 讓它不休眠。

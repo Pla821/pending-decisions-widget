@@ -28,7 +28,8 @@ const FILE_TOOLS = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_pat
 function cleanPath(x) { x = String(x || '').trim().replace(/^["']|["']$/g, ''); return path.isAbsolute(x) ? path.normalize(x) : ''; }
 function scanFile(p, size) { // → { pend: [{ id, at, questions, cwd, kind?, detail? }]（還在等你的）, recent: { runs, files, dirs } }
 	const asked = new Map(), answered = new Set(), runs = [], files = [], dirs = [];
-	let cwd = '', wrap = null, model = null, tail = null, lastText = '';
+	const props = new Map(), resolvedTasks = new Set(); // 「建議任務」卡片：Claude 用 start_session(own_initiative) 放出來、等你按「開始」的
+	let cwd = '', wrap = null, model = null, tail = null, lastText = '', firstPrompt = '';
 	for (const line of readTail(p, size).split('\n')) {
 		if (!line || line.slice(0, 40).indexOf('"api-request') >= 0) { continue; } // 超大的請求快照，跳過
 		if (!cwd) { const m = line.match(/"cwd":("(?:[^"\\]|\\.)*")/); if (m) { try { cwd = JSON.parse(m[1]); } catch { /* 跳過 */ } } } // 這個對話的工作資料夾（不用整行解析）
@@ -50,6 +51,11 @@ function scanFile(p, size) { // → { pend: [{ id, at, questions, cwd, kind?, de
 				else { const ut = typeof cc === 'string' ? cc : (Array.isArray(cc) ? cc.filter((b) => b.type === 'text').map((b) => b.text).join(' ') : ''); tail = { k: 'user', at, what: '你說：' + ut.replace(/\s+/g, ' ').slice(0, 100) }; }
 			}
 			if (j.type === 'user' && j.origin && j.origin.kind === 'human') { wrap = null; } // 你本人回了話＝收尾提問卡處理掉了
+		if (j.type === 'user' && j.message) {
+			const fc = j.message.content, ft = typeof fc === 'string' ? fc : (Array.isArray(fc) ? fc.filter((b) => b.type === 'text').map((b) => b.text).join(' ') : '');
+			if (ft.indexOf('started your proposal') >= 0) { for (const m4 of ft.matchAll(/started your proposal (task_[0-9a-f]+)/g)) { resolvedTasks.add(m4[1]); } } // 你在卡片上按了「開始」：桌面版會在放卡片的那個對話裡留一句「The user started your proposal task_…」
+			if (!firstPrompt && !j.isMeta && !j.isSidechain && ft && !/^<(local-command|command-name|command-message|task-notification|system-reminder)/.test(ft)) { firstPrompt = ft.replace(/\s+/g, ' ').slice(0, 600); } // 這個對話的第一句話（備援：卡片開出來的對話，第一句就是卡片裡的任務）
+		}
 		const c = j.message && j.message.content;
 		if (!Array.isArray(c)) { continue; }
 		for (const b of c) {
@@ -64,8 +70,20 @@ function scanFile(p, size) { // → { pend: [{ id, at, questions, cwd, kind?, de
 					if (fp && !NOISE.test(fp)) { files.push({ at, path: fp, tool: b.name }); dirs.push({ at, path: path.dirname(fp) }); }
 				}
 			}
+			if (b.type === 'tool_use' && /start_session$/.test(b.name || '')) { // 建議任務卡片：own_initiative 才是「放一張卡等你點」；之後 dismiss_task 或帶 proposal_id 再叫一次＝處理掉了
+				const i3 = b.input || {};
+				if (i3.proposal_id) { resolvedTasks.add(String(i3.proposal_id)); }
+				else if (i3.initiation === 'own_initiative' && i3.prompt) {
+					const at3 = j.timestamp ? Date.parse(j.timestamp) : now, head = String(i3.prompt).replace(/\s+/g, ' ').trim();
+					props.set(b.id, { id: 'prop:' + b.id, at: at3, kind: 'proposal', headKey: head.slice(0, 40), detail: head.slice(0, 300), taskId: '', questions: [{ question: '建議任務等你按「開始」：' + String(i3.title || head.slice(0, 40)), options: ['開始'] }], cwd: j.cwd || '' });
+				}
+			} else if (b.type === 'tool_use' && /dismiss_task$/.test(b.name || '') && b.input && b.input.task_id) { resolvedTasks.add(String(b.input.task_id)); }
+			else if (b.type === 'tool_result' && b.tool_use_id && props.has(b.tool_use_id)) { // 結果文字裡有 task_id：之後 dismiss／proposal_id 靠它對上
+				const rc = b.content, rt = typeof rc === 'string' ? rc : (Array.isArray(rc) ? rc.map((x) => (x && x.text) || '').join(' ') : ''), m3 = /task_id:\s*(task_[0-9a-f]+)/.exec(rt);
+				if (m3) { props.get(b.tool_use_id).taskId = m3[1]; }
+			}
 			if (b.type === 'tool_use' && b.name === 'AskUserQuestion') {
-				const qs = ((b.input && b.input.questions) || []).map((q) => ({ question: q.question, options: (q.options || []).map((o) => o.label) }));
+				const qs =((b.input && b.input.questions) || []).map((q) => ({ question: q.question, options: (q.options || []).map((o) => o.label) }));
 				asked.set(b.id, { id: b.id, at: j.timestamp ? Date.parse(j.timestamp) : now, questions: qs, cwd: j.cwd || '' });
 			} else if (b.type === 'tool_use' && WRAP.test(b.name || '')) {
 				const inp = b.input || {};
@@ -76,7 +94,8 @@ function scanFile(p, size) { // → { pend: [{ id, at, questions, cwd, kind?, de
 	}
 	const out = [...asked.values()].filter((a) => !answered.has(a.id));
 	if (wrap) { out.push(wrap); }
-	return { model, cwd, tail, lastText, pend: out.map((a) => ({ ...a, cwd: a.cwd || cwd })), recent: { runs: runs.slice(-40), files: files.slice(-60), dirs: dirs.slice(-60) } };
+	for (const pr of props.values()) { if (!(pr.taskId && resolvedTasks.has(pr.taskId))) { out.push(pr); } }
+	return { model, cwd, tail, lastText, firstPrompt, pend: out.map((a) => ({ ...a, cwd: a.cwd || cwd })), recent: { runs: runs.slice(-40), files: files.slice(-60), dirs: dirs.slice(-60) } };
 }
 
 // 最近清單 → data/recent.json：最近執行的指令、最近寫過的檔案、最近動過的資料夾（新的在前；檔案／資料夾只留現在還在的）
@@ -114,7 +133,7 @@ try {
 	}
 	let dismissed = {}; try { dismissed = JSON.parse(fs.readFileSync(path.join(DATA, 'dismissed.json'), 'utf8')); } catch { /* 沒有就是都沒按過 */ }
 	let cache = {}; try { cache = JSON.parse(fs.readFileSync(CACHE, 'utf8')); } catch { /* 第一次 */ }
-	const nextCache = {}, found = [], runsAll = [], filesAll = [], dirsAll = [], sessAll = [];
+	const nextCache = {}, found = [], runsAll = [], filesAll = [], dirsAll = [], sessAll = [], firstPrompts = [];
 	let files = 0;
 	for (const d of fs.readdirSync(PROJECTS, { withFileTypes: true })) {
 		if (!d.isDirectory()) { continue; }
@@ -124,11 +143,12 @@ try {
 			const p = path.join(dp, f), st = fs.statSync(p);
 			if (now - st.mtimeMs > FRESH) { continue; }
 			files++;
-			const key = st.mtimeMs + ':' + st.size + ':v5';
+			const key = st.mtimeMs + ':' + st.size + ':v6';
 			const c = cache[p];
 			const r = c && c.key === key && c.recent ? c : { key, ...scanFile(p, st.size) };
 			const pend = r.pend, sid = f.replace('.jsonl', '');
-			nextCache[p] = { key, pend, recent: r.recent, model: r.model, cwd: r.cwd, tail: r.tail, lastText: r.lastText };
+			nextCache[p] = { key, pend, recent: r.recent, model: r.model, cwd: r.cwd, tail: r.tail, lastText: r.lastText, firstPrompt: r.firstPrompt };
+				if (r.firstPrompt) { firstPrompts.push({ sid: f.replace('.jsonl', ''), text: r.firstPrompt }); }
 			for (const a of pend) { found.push({ ...a, sid }); }
 			// Fable 提醒：這個對話最近 20 分鐘內是 Fable 在回（Fable 走另一個額度池）→ 放進待決定，問你要不要繼續；你按「知道了」之後 12 小時內不再提醒
 			const cur = sessionInfo(sid), stillFable = !cur || !cur.model || /fable/i.test(cur.model); // 桌面版記的「現在設定的模型」已經不是 Fable＝你已經換掉了，不要再提醒
@@ -143,6 +163,11 @@ try {
 			for (const x of r.recent.files) { filesAll.push({ ...x, sid }); }
 			for (const x of r.recent.dirs) { dirsAll.push({ ...x, sid }); }
 		}
+	}
+	for (let k = found.length - 1; k >= 0; k--) { // 建議任務卡片：有別的對話的第一句話就是這張卡的任務＝已經按過「開始」；卡片放超過 7 天也會過期
+		const x = found[k];
+		if (x.kind !== 'proposal') { continue; }
+		if (now - x.at > 7 * DAY || dismissed[x.id] > now || firstPrompts.some((fp) => fp.sid !== x.sid && x.headKey && fp.text.indexOf(x.headKey) >= 0)) { found.splice(k, 1); }
 	}
 	fs.writeFileSync(CACHE, JSON.stringify(nextCache), 'utf8');
 	writeRecent(runsAll, filesAll, dirsAll, sessAll);

@@ -500,9 +500,9 @@ function Tab-Rows { # 目前這個分頁要列的資料
 				$title = if ($it.title) { [string]$it.title } elseif ($it.cwd) { (Split-Path ([string]$it.cwd).TrimEnd('\', '/') -Leaf) + "（$sid8）" } else { "對話 $sid8" }
 				$q = if ($it.kind -eq 'permission') { (([string]$it.tool) + ' ' + ([string]$it.detail)).Trim() } elseif ($it.questions -and $it.questions.Count -gt 0) { [string]$it.questions[0].question } else { '' }
 				$label = '選項框'; $col = $T.accent
-				if ($it.kind -eq 'permission') { $label = '要你允許'; $col = $T.amber } elseif ($it.kind -eq 'wrapup') { $label = '要你決定'; $col = $T.blue } elseif ($it.kind -eq 'fable') { $label = 'Fable 提醒'; $col = $T.accent } elseif ($it.kind -eq 'usage') { $label = $it.label; $col = $(if ($it.level -ge 2) { $T.accent } else { $T.amber }) }
-				$row = New-Row $title $label $col $q (Age-Text ([double]$it.at)) ([string]$it.local) ''
-				if ($it.kind -eq 'fable') { $row.Extra = [string]$it.sid }
+				if ($it.kind -eq 'permission') { $label = '要你允許'; $col = $T.amber } elseif ($it.kind -eq 'wrapup') { $label = '要你決定'; $col = $T.blue } elseif ($it.kind -eq 'fable') { $label = 'Fable 提醒'; $col = $T.accent } elseif ($it.kind -eq 'proposal') { $label = '等你按開始'; $col = $T.blue } elseif ($it.kind -eq 'usage') { $label = $it.label; $col = $(if ($it.level -ge 2) { $T.accent } else { $T.amber }) }
+				$row = New-Row $title $label $col $q (Age-Text ([double]$it.at)) ([string]$it.local) $(if ($it.kind -eq 'proposal') { "$title`n$q`n（右鍵 → 知道了：這張卡不再提醒）" } else { '' })
+				if ($it.kind -eq 'fable') { $row.Extra = [string]$it.sid } elseif ($it.kind -eq 'proposal') { $row.Extra = [string]$it.id }
 				[void]$rows.Add($row)
 			}
 		}
@@ -519,7 +519,9 @@ function Tab-Rows { # 目前這個分頁要列的資料
 }
 function Rebuild-List {
 	$list.SingleClick = ($script:tab -ne 'pending')
-	$list.Items = @(Tab-Rows) # 沒有任何一列時 Tab-Rows 什麼都不回傳（會變成 null → 滑鼠一動清單就當掉），用 @() 保證是空清單
+	$newItems = New-Object 'System.Collections.Generic.List[RowItem]' # 一列一列加進去：直接把陣列指給 Items 偶爾會報「無法將 Object[] 轉成 RowItem」（error.log 一直出現），而且沒有任何一列時 Tab-Rows 什麼都不回傳，這樣寫兩種情況都安全
+	foreach ($nr in @(Tab-Rows)) { if ($nr -is [RowItem]) { [void]$newItems.Add($nr) } elseif ($nr -is [System.Collections.IEnumerable]) { foreach ($nr2 in $nr) { if ($nr2 -is [RowItem]) { [void]$newItems.Add($nr2) } } } }
+	$list.Items = $newItems
 	if ($script:listTab -ne $script:tab) { $list.Scroll = 0; $script:listTab = $script:tab } # 每 3 秒會重建一次：只有換分頁才回到最上面，不然捲到一半就彈回去
 	$em = Empty-Messages; $list.EmptyTitle = $em[0]; $list.EmptyText = $em[1]
 	$hint.Text = switch ($script:tab) { 'pending' { '雙擊＝開對話' } 'running' { '點＝跳到那個對話' } 'broken' { '點＝開對話＋複製' } 'sessions' { '點＝開對話' } 'projects' { '點＝開資料夾' } 'files' { '點一下＝找到檔案' } 'dirs' { '點一下＝開資料夾' } }
@@ -566,11 +568,11 @@ function Report-Usage { # 右鍵「回報額度 %」：手動輸入目前最高�
 	} catch { }
 	Refresh-Data
 }
-function Dismiss-Fable([string]$sid) { # 「知道了」：這個對話 12 小時內不再提醒 Fable
+function Dismiss-Fable([string]$sid, [int]$hours = 12) { # 「知道了」：這個對話 12 小時內不再提醒 Fable；建議任務卡片傳 hours 更長
 	if (-not $sid) { return }
 	try {
 		$d = @{}; if (Test-Path $DismissFile) { $j = (Get-Content $DismissFile -Raw -Encoding UTF8) | ConvertFrom-Json; foreach ($p in $j.PSObject.Properties) { $d[$p.Name] = $p.Value } }
-		$d[$sid] = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + 12 * 3600000
+		$d[$sid] = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + $hours * 3600000
 		($d | ConvertTo-Json) | Set-Content -Path $DismissFile -Encoding UTF8
 	} catch { }
 	Run-Scan
@@ -676,12 +678,12 @@ $rowMenu = New-Object System.Windows.Forms.ContextMenuStrip
 $rowMenu.Font = $FontBtn
 $mi = $rowMenu.Items.Add('知道了（這個對話 12 小時內不再提醒 Fable）')
 $script:menuSid = ''
-$mi.Add_Click({ Dismiss-Fable $script:menuSid })
+$mi.Add_Click({ if ([string]$script:menuSid -like 'prop:*') { Dismiss-Fable $script:menuSid 168 } else { Dismiss-Fable $script:menuSid } })
 $list.Add_MouseUp({ param($s, $e)
 	if ($e.Button -ne 'Right' -or $script:tab -ne 'pending') { return }
 	$i = $list.HitTest($e.Y); if ($i -lt 0) { return }
 	$row = $list.Items[$i]
-	if ($row.Extra) { $script:menuSid = $row.Extra; $rowMenu.Show($list, $e.Location) }
+	if ($row.Extra) { $script:menuSid = $row.Extra; $mi.Text = $(if ([string]$row.Extra -like 'prop:*') { '知道了（這張建議任務卡不再提醒）' } else { '知道了（這個對話 12 小時內不再提醒 Fable）' }); $rowMenu.Show($list, $e.Location) }
 })
 $list.Add_RowActivated({
 	if ($script:pdMoved) { return } # 剛剛是在拖整個浮窗，不是點那一列
