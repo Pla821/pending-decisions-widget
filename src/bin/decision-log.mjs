@@ -147,6 +147,7 @@ try {
 	const isWrap = /wrap_up$/.test(inp.tool_name || '');
 	if (isWrap && !(ev === 'PreToolUse' && inp.tool_input && inp.tool_input.ask)) { process.exit(0); } // 提問卡工具呼叫馬上就回傳，Post 事件不代表你回答了
 	if (!isPerm && !isWrap && inp.tool_name !== 'AskUserQuestion') { process.exit(0); }
+	if (isPerm && (inp.tool_name === 'AskUserQuestion' || /AskUserQuestion|wrap_up/.test(String(inp.message || '')))) { process.exit(0); } // 選項框／提問卡本身就是「等你回答」，PreToolUse 已經記了；別再多記一筆「需要你的允許：AskUserQuestion」（會讓同一個問題跳兩次通知、清單多一列）
 		if (!notifyOn(isPerm ? 'permission' : isWrap ? 'wrapup' : 'question')) { process.exit(0); } // config.json 的 notify 關掉這一種：不記錄、不跳通知、不推手機
 	fs.mkdirSync(DATA, { recursive: true });
 	const st = loadState();
