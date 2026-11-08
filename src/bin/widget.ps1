@@ -500,13 +500,15 @@ function Tab-Rows { # 目前這個分頁要列的資料
 				$title = if ($it.title) { [string]$it.title } elseif ($it.cwd) { (Split-Path ([string]$it.cwd).TrimEnd('\', '/') -Leaf) + "（$sid8）" } else { "對話 $sid8" }
 				$q = if ($it.kind -eq 'permission') { (([string]$it.tool) + ' ' + ([string]$it.detail)).Trim() } elseif ($it.questions -and $it.questions.Count -gt 0) { [string]$it.questions[0].question } else { '' }
 				$label = '選項框'; $col = $T.accent
+				if ($it.kind -eq 'wrapup' -and $q) { $q = '▶ 雙擊直接點按鈕：' + $q }
+				if ($it.qid -and [double]$it.qUntil -gt [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) { $q = '▶ 雙擊直接點選項：' + $q } # 手機與小工具都能答（先點先贏）
 				if ($it.kind -eq 'permission') { $label = '要你允許'; $col = $T.amber } elseif ($it.kind -eq 'wrapup') { $label = '要你決定'; $col = $T.blue } elseif ($it.kind -eq 'fable') { $label = 'Fable 提醒'; $col = $T.accent } elseif ($it.kind -eq 'proposal') { $label = '等你按開始'; $col = $T.blue } elseif ($it.kind -eq 'usage') { $label = $it.label; $col = $(if ($it.level -ge 2) { $T.accent } else { $T.amber }) }
 				$row = New-Row $title $label $col $q (Age-Text ([double]$it.at)) ([string]$it.local) $(if ($it.kind -eq 'proposal') { "$title`n$q`n（右鍵 → 知道了：這張卡不再提醒）" } else { '' })
 				if ($it.kind -eq 'fable') { $row.Extra = [string]$it.sid } elseif ($it.kind -eq 'proposal') { $row.Extra = [string]$it.id }
 				[void]$rows.Add($row)
 			}
 		}
-		'running' { if ((Running-Count) -gt 0) { [void]$rows.Add((New-Row '先別關機' '提示' $T.accent ('還有 ' + (Running-Count) + ' 件在跑，現在關機會中斷它們' + $(if (@($script:recent.running | Where-Object { $_.fable }).Count -gt 0) { '（⚠ 有對話正在用 Fable）' } else { '' })) '' '' '')) }; if ($script:recent) { foreach ($x in @($script:recent.running)) { $sub = '正在：' + $(if ($x.doing) { [string]$x.doing } else { '（不明）' }); if ($x.fable) { $sub = '⚠ 正在用 Fable｜' + $sub }; [void]$rows.Add((New-Row ([string]$x.title) '跑著' $(if ($x.fable) { $T.accent } else { $T.amber }) $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $sub))) } }
+		'running' { if ($script:recent) { $pn = @(Get-PausableRuns).Count; [void]$rows.Add((New-Row '■ 全部暫停' '一鍵' $T.accent ('關機前用：電腦逐個替使用者按各對話的「停止」（目前可停 ' + $pn + ' 個；會先問 使用者）') '' 'pause-all' "關機、拔外接硬碟前，請所有正在跑的對話停手`n點這一列：確認後，電腦會逐個切到那個對話、替使用者按輸入框右邊的「停止」鍵（不是強制關閉）`n停成功的會記起來，之後按「全部繼續」才會叫醒它們`n在等使用者回答的對話不會被碰；結果記在 data 資料夾的 pause.log")); $rn = Paused-Count; [void]$rows.Add((New-Row '▶ 全部繼續' '一鍵' $T.accent ('叫醒剛剛暫停成功的對話（目前 ' + $rn + ' 個；會先問 使用者；每個要重讀整段對話，花額度）') '' 'resume-all' "把剛剛「全部暫停」停成功的對話叫醒，請它們從停下的地方接著做`n點這一列：確認後，在背景替每個對話送一句固定的話（和「全部重新啟動」同一招）")) }; if ((Running-Count) -gt 0) { [void]$rows.Add((New-Row '先別關機' '提示' $T.accent ('還有 ' + (Running-Count) + ' 件在跑，現在關機會中斷它們' + $(if (@($script:recent.running | Where-Object { $_.fable }).Count -gt 0) { '（⚠ 有對話正在用 Fable）' } else { '' })) '' '' '')) }; if ($script:recent) { foreach ($x in @($script:recent.running)) { $sub = '正在：' + $(if ($x.doing) { [string]$x.doing } else { '（不明）' }); if ($x.fable) { $sub = '⚠ 正在用 Fable｜' + $sub }; [void]$rows.Add((New-Row ([string]$x.title) '跑著' $(if ($x.fable) { $T.accent } else { $T.amber }) $sub (Age-Text ([double]$x.at)) ([string]$x.local) ("{0}`n{1}`n{2}" -f $x.title, $x.cwd, $sub))) } }
 		# 背景程式也列在這頁（對話回完了、程式還在跑）
 		foreach ($w in @($script:workers)) { [void]$rows.Add((New-Row ([string]$w.title) '背景' $T.blue $(if ($w.sub -and $w.sub -ne $w.title) { [string]$w.sub } elseif ($w.dir) { Short-Dir ([string]$w.dir) } else { '（程式 ' + $w.pid + '）' }) (Age-Text ([double]$w.at)) ($(if ($ses = Find-WorkerSession $w) { 'ses:' + $ses } elseif ($w.dir) { 'dir:' + $w.dir } else { '' })) ("{0}`n{1}" -f $w.title, $w.cmd))) } }
 		'broken' { if ($script:recent) { if (@($script:recent.broken).Count -gt 0) { [void]$rows.Add((New-Row '▶ 全部重新啟動' '一鍵' $T.accent ('一鍵叫醒下面中斷的對話（一次最多 3 個，會先問你；在背景接著做，不會跳視窗）') '' 'restart-all' "把「中斷」的對話全部叫醒
@@ -617,6 +619,7 @@ function Refresh-Data {
 	$items = @()
 	try { if (Test-Path $StateFile) { $j = (Get-Content $StateFile -Raw -Encoding UTF8) | ConvertFrom-Json; $items = @($j.items | Where-Object { $_.status -eq 'pending' } | Sort-Object { [double]$_.at } -Descending) } } catch { }
 	try { if (Test-Path $StatusFile) { $script:status = (Get-Content $StatusFile -Raw -Encoding UTF8) | ConvertFrom-Json } } catch { }
+	if (-not (Q-Flags).widget) { $items = @($items | Where-Object { $_.kind }) } # 小工具選項框開關：關＝不列選項框（沒有 kind 的就是選項框）
 	$items = @(Usage-Items) + @($items) # 額度警示排在最前面
 	$script:items = $items
 	$n = $items.Count
@@ -676,9 +679,10 @@ function Restart-AllBroken {
 		if (-not $x.sid -or $x.run) { continue }
 		if ([string]$x.stopped -match '^你說：' -and [string]$x.stopped -match 'system-reminder') { continue }
 		if ($script:wokeAt.ContainsKey([string]$x.sid) -and ($now - $script:wokeAt[[string]$x.sid]) -lt 600000) { continue }
+		if (Woke-Recently ([string]$x.sid)) { continue } # 手機叫醒過的也算（共用 restart.log）
 		[void]$cand.Add($x)
 	}
-	if ($cand.Count -eq 0) { Pet-Say '沒有需要叫醒的（可能誤報、正在跑、或 10 分鐘內叫過）' 6000; return }
+	if ($cand.Count -eq 0) { [void][System.Windows.Forms.MessageBox]::Show($(if ($waiting -gt 0) { '沒有要停的：有 ' + $waiting + ' 個對話正在等使用者回答選項框，它們本來就停著，不用按停止。' } else { '目前沒有正在跑的對話，不需要暫停。' }) + [Environment]::NewLine + [Environment]::NewLine + '（只算「正在執行中」的對話；背景程式不會被停）', '全部暫停', 'OK', 'Information'); return }
 	$pick = @($cand | Select-Object -First 3)
 	$names = ($pick | ForEach-Object { '・' + [string]$_.title }) -join [Environment]::NewLine
 	$more = if ($cand.Count -gt 3) { [Environment]::NewLine + '（另外還有 ' + ($cand.Count - 3) + ' 個，這次先不叫）' } else { '' }
@@ -701,6 +705,211 @@ function Restart-AllBroken {
 		} catch { Add-Content -LiteralPath $log -Encoding UTF8 -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' 失敗 ' + $x.sid + ' ' + $_.Exception.Message) }
 	}
 	Pet-Say ('已在背景叫醒 ' + $ok + ' 個，幾分鐘後看「停住了」有沒有少') 9000
+}
+function Get-PausableRuns { # 和 pd-agent 的 runningNow／waitingSids 同一套規則：recent.json 裡正在跑、有標題與連結、而且不是在等使用者回答的對話
+	$out = @()
+	if (-not $script:recent -or -not $script:recent.sessions) { return @() }
+	$wait = @{}; foreach ($it in @($script:items)) { if ($it.sid -and ($it.kind -in @($null, 'question', 'permission', 'wrapup'))) { $wait[([string]$it.sid).ToLower()] = $true } }
+	foreach ($x in @($script:recent.sessions)) {
+		if (-not $x.run -or -not $x.sid -or -not $x.title -or ([string]$x.local) -notmatch '^local_[0-9a-f-]{36}$') { continue }
+		if ($wait.ContainsKey(([string]$x.sid).ToLower())) { continue }
+		$out += $x
+	}
+	return $out
+}
+function Get-WaitingRunCount { $n = 0; if ($script:recent -and $script:recent.sessions) { $wait = @{}; foreach ($it in @($script:items)) { if ($it.sid -and ($it.kind -in @($null, 'question', 'permission', 'wrapup'))) { $wait[([string]$it.sid).ToLower()] = $true } }; foreach ($x in @($script:recent.sessions)) { if ($x.run -and $x.sid -and $wait.ContainsKey(([string]$x.sid).ToLower())) { $n++ } } }; return $n }
+function Paused-Count { try { $pf = Join-Path $DataDir 'paused.json'; if (Test-Path -LiteralPath $pf) { $j = (Get-Content -LiteralPath $pf -Raw -Encoding UTF8) | ConvertFrom-Json; return @($j.items | Where-Object { $_.ok -and -not $_.resumed }).Count } } catch { }; return 0 }
+function Agent-Alive { try { $c = New-Object System.Net.Sockets.TcpClient; $iar = $c.BeginConnect('127.0.0.1', 47831, $null, $null); $ok = $iar.AsyncWaitHandle.WaitOne(500); if ($ok -and $c.Connected) { $c.Close(); return $true }; $c.Close() } catch { }; return $false }
+function Send-CtlRequest([string]$action, [string]$doneTitle) { # 把請求交給 pd-agent（data\ctl-request.json），再用計時器等 data\ctl-result.json 回來，顯示結果
+	if (-not (Agent-Alive)) { Pet-Say '常駐小程式（pd-agent）沒開，等一分鐘它會自己起來；或看看有沒有設定飛傳信箱' 8000; return }
+	$at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+	$rf = Join-Path $DataDir 'ctl-result.json'; try { if (Test-Path -LiteralPath $rf) { Remove-Item -LiteralPath $rf -Force } } catch { }
+	[System.IO.File]::WriteAllText((Join-Path $DataDir 'ctl-request.json'), (@{ action = $action; at = $at } | ConvertTo-Json -Compress), (New-Object System.Text.UTF8Encoding($false)))
+	$script:ctlWait = @{ at = $at; action = $action; title = $doneTitle; tries = 0 }
+	Pet-Say ($(if ($action -eq 'pause') { '電腦開始逐個按停止了，這段時間請先別動滑鼠鍵盤' } else { '開始叫醒了' })) 9000
+	if (-not $script:ctlTm) {
+		$script:ctlTm = New-Object System.Windows.Forms.Timer; $script:ctlTm.Interval = 2000
+		$script:ctlTm.Add_Tick({
+			$w = $script:ctlWait; if (-not $w) { $script:ctlTm.Stop(); return }
+			$w.tries++
+			$rf2 = Join-Path $DataDir 'ctl-result.json'; $r = $null
+			try { if (Test-Path -LiteralPath $rf2) { $r = (Get-Content -LiteralPath $rf2 -Raw -Encoding UTF8) | ConvertFrom-Json } } catch { }
+			if ($r -and [double]$r.reqAt -eq [double]$w.at) {
+				$script:ctlTm.Stop(); $script:ctlWait = $null
+				$msg = [string]$r.note
+				if ($w.action -eq 'pause' -and $r.failed -and @($r.failed).Count -gt 0) { $msg += [Environment]::NewLine + [Environment]::NewLine + '這些請使用者自己在 Claude 裡按停止：' + [Environment]::NewLine + ((@($r.failed) | ForEach-Object { '・' + [string]$_.title + '（' + [string]$_.note + '）' }) -join [Environment]::NewLine) }
+				if ($w.action -eq 'pause' -and $r.waiting -and @($r.waiting).Count -gt 0) { $msg += [Environment]::NewLine + [Environment]::NewLine + '這些在等使用者回答（本來就停著，沒有停止鍵）：' + [Environment]::NewLine + ((@($r.waiting) | ForEach-Object { '・' + [string]$_ }) -join [Environment]::NewLine) }
+				[void][System.Windows.Forms.MessageBox]::Show($msg, $w.title, 'OK', $(if ($r.ok) { 'Information' } else { 'Warning' }))
+				return
+			}
+			if ($w.tries -gt 180) { $script:ctlTm.Stop(); $script:ctlWait = $null; Pet-Say '等了 6 分鐘沒收到電腦的回報，請看 data\pause.log' 9000 } # 20 個對話最多約 2～3 分鐘
+		})
+	}
+	$script:ctlTm.Start()
+}
+function Pause-All {
+	if ($script:ctlWait) { Pet-Say '上一個暫停／繼續還在做' 5000; return }
+	$cand = @(Get-PausableRuns | Select-Object -First 20); $waiting = Get-WaitingRunCount
+	if ($cand.Count -eq 0) { Pet-Say ($(if ($waiting -gt 0) { '沒有要停的：' + $waiting + ' 個在等使用者回答，本來就停著' } else { '目前沒有正在跑的對話' })) 6000; return }
+	$names = ($cand | ForEach-Object { '・' + [string]$_.title }) -join [Environment]::NewLine
+	$msg = '要請這 ' + $cand.Count + ' 個正在跑的對話停手嗎？' + [Environment]::NewLine + [Environment]::NewLine + $names + [Environment]::NewLine + [Environment]::NewLine + '電腦會逐個切到那個對話、替使用者按「停止」（不是強制關閉），每個約 5 秒，這段時間 Claude 視窗會一直切換，請先別動滑鼠鍵盤。' + $(if ($waiting -gt 0) { [Environment]::NewLine + $waiting + ' 個在等使用者回答的不會被碰。' } else { '' }) + [Environment]::NewLine + '停成功的會記住，之後可按「全部繼續」。'
+	if ([System.Windows.Forms.MessageBox]::Show($msg, '全部暫停', 'YesNo', 'Question') -ne 'Yes') { return }
+	Send-CtlRequest 'pause' '全部暫停：結果'
+}
+function Resume-All {
+	if ($script:ctlWait) { Pet-Say '上一個暫停／繼續還在做' 5000; return }
+	$n = Paused-Count
+	if ($n -le 0) { Pet-Say '沒有可以繼續的（還沒按過全部暫停，或已經繼續過了）' 6000; return }
+	$msg = '要叫醒剛剛暫停成功的 ' + $n + ' 個對話嗎？' + [Environment]::NewLine + [Environment]::NewLine + '每個都要重讀整段對話（花額度），它們在背景接著做，沒有權限的動作會被擋住。每個間隔 2 秒啟動。'
+	if ([System.Windows.Forms.MessageBox]::Show($msg, '全部繼續', 'YesNo', 'Question') -ne 'Yes') { return }
+	Send-CtlRequest 'resume' '全部繼續：結果'
+}
+function Woke-Recently([string]$sid) { # data\restart.log（小工具與手機遙控共用）：這個對話 10 分鐘內有沒有被叫醒過
+	$lg = Join-Path $DataDir 'restart.log'
+	if (-not $sid -or -not (Test-Path -LiteralPath $lg)) { return $false }
+	try {
+		foreach ($ln in @(Get-Content -LiteralPath $lg -Tail 60 -Encoding UTF8)) {
+			if ($ln -match '(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) 叫醒 ([0-9a-fA-F-]{36})' -and $matches[2] -eq $sid) { if (([DateTime]::Now - [DateTime]::Parse($matches[1])).TotalMinutes -lt 10) { return $true } }
+		}
+	} catch { }
+	return $false
+}
+function Json-Str([string]$s) { return (ConvertTo-Json -InputObject $s -Compress) }
+function Show-AnswerDialog($it) { # 直接在小工具點選項回答 Claude 的選擇題：走飛傳信箱 /pd/api/reply（和手機同一個項目，先點先贏；hook 收到答案就不跳原生對話框）
+	$srv = ''; $sec = ''
+	try { $srv = ([string]$Config.push.server).TrimEnd('/'); $sec = [string]$Config.push.secret } catch { }
+	if (-not $srv -or $sec.Length -lt 32) { Pet-Say '沒設定飛傳信箱，不能從小工具回答' 6000; return }
+	$qs = @($it.questions); $meta = @($it.qmeta)
+	$W = 580
+	$f = New-Object System.Windows.Forms.Form
+	$f.Text = '回答選項框 — ' + $(if ($it.title) { [string]$it.title } else { '對話' })
+	$f.StartPosition = 'CenterScreen'; $f.Font = $FontBtn; $f.BackColor = $T.bg; $f.ForeColor = $T.fg
+	$f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.TopMost = $true; $f.ShowInTaskbar = $true
+	$outer = New-Object System.Windows.Forms.FlowLayoutPanel
+	$outer.FlowDirection = 'TopDown'; $outer.WrapContents = $false; $outer.AutoScroll = $true; $outer.Location = New-Object System.Drawing.Point(8, 8)
+	$groups = New-Object System.Collections.ArrayList
+	for ($qi = 0; $qi -lt $qs.Count; $qi++) {
+		$q = $qs[$qi]; $multi = ($meta.Count -gt $qi -and $meta[$qi].multi -eq $true); $descs = @(); if ($meta.Count -gt $qi) { $descs = @($meta[$qi].descs) }
+		$gp = New-Object System.Windows.Forms.FlowLayoutPanel # 每題一個容器：單選鈕才不會跨題連動
+		$gp.FlowDirection = 'TopDown'; $gp.WrapContents = $false; $gp.AutoSize = $true; $gp.AutoSizeMode = 'GrowAndShrink'; $gp.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 14)
+		$lb = New-Object System.Windows.Forms.Label
+		$lb.AutoSize = $true; $lb.MaximumSize = New-Object System.Drawing.Size(($W - 60), 0); $lb.Font = $FontTitle; $lb.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 6)
+		$lb.Text = [string]$q.question + $(if ($multi) { '（可複選）' } else { '' })
+		[void]$gp.Controls.Add($lb)
+		$opts = New-Object System.Collections.ArrayList
+		$oi = 0
+		$tb = New-Object System.Windows.Forms.TextBox
+		$tb.Width = $W - 80; $tb.MaxLength = 200; $tb.Margin = New-Object System.Windows.Forms.Padding(22, 2, 0, 0)
+		foreach ($o in @($q.options)) {
+			$ctl = if ($multi) { New-Object System.Windows.Forms.CheckBox } else { New-Object System.Windows.Forms.RadioButton }
+			$ctl.AutoSize = $true; $ctl.MaximumSize = New-Object System.Drawing.Size(($W - 70), 0); $ctl.Margin = New-Object System.Windows.Forms.Padding(8, 2, 0, 4)
+			$d = if ($descs.Count -gt $oi) { [string]$descs[$oi] } else { '' }
+			$ctl.Text = [string]$o + $(if ($d) { "  —  $d" } else { '' })
+			if (-not $multi) { $ctl.Tag = $tb; $ctl.Add_CheckedChanged({ param($s, $e) if ($s.Checked) { $s.Tag.Text = '' } }) }
+			[void]$opts.Add($ctl); [void]$gp.Controls.Add($ctl); $oi++
+		}
+		$ol = New-Object System.Windows.Forms.Label
+		$ol.AutoSize = $true; $ol.ForeColor = $T.muted; $ol.Text = '其他（自己打字）：'; $ol.Margin = New-Object System.Windows.Forms.Padding(8, 6, 0, 0)
+		[void]$gp.Controls.Add($ol); [void]$gp.Controls.Add($tb)
+		if (-not $multi) { $tb.Tag = $opts; $tb.Add_TextChanged({ param($s, $e) if ($s.Text.Trim()) { foreach ($x in $s.Tag) { $x.Checked = $false } } }) }
+		[void]$groups.Add(@{ opts = $opts; other = $tb; multi = $multi })
+		[void]$outer.Controls.Add($gp)
+	}
+	$status = New-Object System.Windows.Forms.Label
+	$status.AutoSize = $false; $status.ForeColor = $T.muted; $status.Height = 22
+	$btnOk = New-Object System.Windows.Forms.Button; $btnOk.Text = '送出答案'; $btnOk.Width = 110; $btnOk.Height = 32
+	$btnOpen = New-Object System.Windows.Forms.Button; $btnOpen.Text = '開對話'; $btnOpen.Width = 90; $btnOpen.Height = 32
+	$btnCancel = New-Object System.Windows.Forms.Button; $btnCancel.Text = '取消'; $btnCancel.Width = 80; $btnCancel.Height = 32
+	foreach ($b in @($btnOk, $btnOpen, $btnCancel)) { $b.FlatStyle = 'System'; $b.BackColor = $T.surface; $b.ForeColor = $T.fg }
+	$f.Controls.Add($outer); $f.Controls.Add($status); $f.Controls.Add($btnOk); $f.Controls.Add($btnOpen); $f.Controls.Add($btnCancel)
+	# 版面：內容高度先量，再決定視窗高度（最高 640）
+	$outer.Size = New-Object System.Drawing.Size(($W - 16), 100)
+	$total = 0; foreach ($c in $outer.Controls) { $total += $c.PreferredSize.Height + 14 }
+	$outer.Height = [Math]::Min([Math]::Max(140, $total + 8), 600)
+	$f.ClientSize = New-Object System.Drawing.Size($W, ($outer.Height + 16 + 22 + 50))
+	$status.Location = New-Object System.Drawing.Point(12, ($outer.Bottom + 6)); $status.Width = $W - 24
+	$by = $outer.Bottom + 34
+	$btnCancel.Location = New-Object System.Drawing.Point(($W - 92), $by); $btnOpen.Location = New-Object System.Drawing.Point(($W - 92 - 100), $by); $btnOk.Location = New-Object System.Drawing.Point(($W - 92 - 100 - 120), $by)
+	$f.AcceptButton = $btnOk; $f.CancelButton = $btnCancel
+	# 事件處理不用閉包（腳本層函式在閉包裡找不到），狀態放 $script:ad*
+	$script:adIt = $it; $script:adF = $f; $script:adGroups = $groups; $script:adStatus = $status; $script:adOk = $btnOk; $script:adSrv = $srv; $script:adSec = $sec; $script:adUntil = [double]$it.qUntil
+	$tm = New-Object System.Windows.Forms.Timer; $tm.Interval = 1000; $script:adTm = $tm
+	$tm.Add_Tick({
+		$left = [int](($script:adUntil - [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) / 1000)
+		if ($left -le 0) { $script:adStatus.Text = '已逾時：電腦那邊會改跳原本的對話框，請在那裡回答'; $script:adOk.Enabled = $false; $script:adTm.Stop() } elseif ($script:adIt.sync) { $script:adStatus.Text = "手機、Claude 視窗與這裡先答先贏；答完電腦會自動在 Claude 視窗點好（答案送出後這張卡就消失）" } else { $script:adStatus.Text = "手機與這裡先點先贏，還剩 $left 秒（逾時後會改跳原本的對話框）" }
+	})
+	$tm.Start()
+	$btnOpen.Add_Click({ Open-Session ([string]$script:adIt.local) })
+	$btnOk.Add_Click({
+		$groups = $script:adGroups; $it = $script:adIt; $f = $script:adF; $tm = $script:adTm; $status = $script:adStatus; $btnOk = $script:adOk; $srv = $script:adSrv; $sec = $script:adSec
+		$parts = New-Object System.Collections.ArrayList
+		for ($i = 0; $i -lt $groups.Count; $i++) {
+			$g = $groups[$i]; $sel = New-Object System.Collections.ArrayList
+			for ($k = 0; $k -lt $g.opts.Count; $k++) { if ($g.opts[$k].Checked) { [void]$sel.Add($k) } }
+			$other = $g.other.Text.Trim()
+			if ($sel.Count + $(if ($other) { 1 } else { 0 }) -lt 1) { [System.Windows.Forms.MessageBox]::Show("第 $($i + 1) 題還沒選（可以選一個選項，或在「其他」打字）", '還沒選完') | Out-Null; return }
+			[void]$parts.Add('{"sel":[' + ($sel -join ',') + '],"other":' + (Json-Str $other) + '}')
+		}
+		$body = '{"id":' + (Json-Str ([string]$it.qid)) + ',"answers":[' + ($parts -join ',') + ']}'
+		$btnOk.Enabled = $false; $status.Text = '送出中…'; [System.Windows.Forms.Application]::DoEvents()
+		try {
+			[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+			[void](Invoke-WebRequest -UseBasicParsing -Method Post -Uri ($srv + '/pd/api/reply') -Headers @{ Authorization = 'Bearer ' + $sec } -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 15)
+			$tm.Stop(); $f.Close(); Pet-Say '答案已送出，Claude 馬上收到' 5000
+		} catch {
+			$code = 0; try { $code = [int]$_.Exception.Response.StatusCode } catch { }
+			$msg = if ($code -eq 404) { '這題已經逾時或被取消了。電腦那邊會改跳原本的對話框，請直接在那裡回答。' } elseif ($code -eq 409) { '手機已經先回答了這一題。' } elseif ($code -eq 400) { '答案格式被伺服器拒絕（選項數量不對？）' } elseif ($code -eq 401 -or $code -eq 503) { '飛傳信箱密碼不對或沒啟用。' } else { '送出失敗（網路不通？）：' + $_.Exception.Message }
+			[System.Windows.Forms.MessageBox]::Show($msg, '沒送出去') | Out-Null
+			if ($code -eq 404 -or $code -eq 409) { $tm.Stop(); $f.Close() } else { $btnOk.Enabled = $true; $status.Text = '' }
+		}
+	})
+	[void]$f.ShowDialog()
+	$tm.Stop(); $tm.Dispose(); $f.Dispose()
+}
+function Show-WrapDialog($it) { # 收尾提問卡：點卡片上的按鈕→經飛傳信箱叫電腦端 pd-agent 在背景把那句話送給該對話（和手機同一條路，同樣的安全閘）
+	$srv = ''; $sec = ''
+	try { $srv = ([string]$Config.push.server).TrimEnd('/'); $sec = [string]$Config.push.secret } catch { }
+	if (-not $srv -or $sec.Length -lt 32) { Pet-Say '沒設定飛傳信箱，不能從小工具送出' 6000; return }
+	$opts = @($it.questions[0].options)
+	$f = New-Object System.Windows.Forms.Form
+	$f.Text = '回答提問卡 — ' + $(if ($it.title) { [string]$it.title } else { '對話' })
+	$f.StartPosition = 'CenterScreen'; $f.Font = $FontBtn; $f.BackColor = $T.bg; $f.ForeColor = $T.fg
+	$f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.TopMost = $true
+	$W = 560
+	$lq = New-Object System.Windows.Forms.Label; $lq.AutoSize = $true; $lq.MaximumSize = New-Object System.Drawing.Size(($W - 40), 0); $lq.Font = $FontTitle; $lq.Text = [string]$it.questions[0].question; $lq.Location = New-Object System.Drawing.Point(20, 16)
+	$f.Controls.Add($lq)
+	$y = $lq.Bottom + 8
+	if ($it.detail) {
+		$ld = New-Object System.Windows.Forms.Label; $ld.AutoSize = $true; $ld.MaximumSize = New-Object System.Drawing.Size(($W - 40), 0); $ld.ForeColor = $T.muted; $ld.Text = [string]$it.detail; $ld.Location = New-Object System.Drawing.Point(20, $y)
+		$f.Controls.Add($ld); $y = $ld.Bottom + 8
+	}
+	$script:wrIt = $it; $script:wrF = $f; $script:wrSrv = $srv; $script:wrSec = $sec
+	$y += 8
+	for ($i = 0; $i -lt $opts.Count; $i++) {
+		$b = New-Object System.Windows.Forms.Button; $b.Text = [string]$opts[$i]; $b.Tag = $i; $b.Size = New-Object System.Drawing.Size(($W - 40), 38); $b.Location = New-Object System.Drawing.Point(20, $y); $b.FlatStyle = 'System'
+		$b.Add_Click({ param($s, $e)
+			$it = $script:wrIt; $label = [string]$it.questions[0].options[[int]$s.Tag]
+			if ([System.Windows.Forms.MessageBox]::Show("要把「$label」送給這個對話嗎？`n電腦會在背景用 claude 把這句話送過去，對話會接著做（花額度）。", '送出答案', 'YesNo', 'Question') -ne 'Yes') { return }
+			$card = 'pd-' + ([System.BitConverter]::ToString([System.Security.Cryptography.SHA1]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes([string]$it.id))) -replace '-', '').ToLower().Substring(0, 20)
+			$body = '{"action":"reply","card":' + (Json-Str $card) + ',"idx":' + [int]$s.Tag + '}'
+			try {
+				[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+				[void](Invoke-WebRequest -UseBasicParsing -Method Post -Uri ($script:wrSrv + '/pd/api/cmd') -Headers @{ Authorization = 'Bearer ' + $script:wrSec } -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 15)
+				$script:wrF.Close(); Pet-Say ('已請電腦在背景送出「' + $label + '」，幾秒後卡片會消失') 6000
+			} catch {
+				$code = 0; try { $code = [int]$_.Exception.Response.StatusCode } catch { }
+				$msg = if ($code -eq 503) { '電腦接收程式沒連線（小工具剛開還要等一分鐘），稍後再試。' } elseif ($code -eq 409) { '這張卡已經送出過了。' } elseif ($code -eq 400) { '伺服器還沒看到這張卡（等幾秒同步），或它已經不在等你了。' } elseif ($code -eq 429) { '太頻繁了，等幾分鐘再試。' } else { '送出失敗：' + $_.Exception.Message }
+				[System.Windows.Forms.MessageBox]::Show($msg, '沒送出去') | Out-Null
+			}
+		})
+		$f.Controls.Add($b); $y += 46
+	}
+	$bo = New-Object System.Windows.Forms.Button; $bo.Text = '開對話（自己回）'; $bo.Size = New-Object System.Drawing.Size(150, 32); $bo.Location = New-Object System.Drawing.Point(20, ($y + 6)); $bo.FlatStyle = 'System'
+	$bo.Add_Click({ Open-Session ([string]$script:wrIt.local); $script:wrF.Close() })
+	$bc = New-Object System.Windows.Forms.Button; $bc.Text = '取消'; $bc.Size = New-Object System.Drawing.Size(90, 32); $bc.Location = New-Object System.Drawing.Point(($W - 110), ($y + 6)); $bc.FlatStyle = 'System'; $bc.DialogResult = 'Cancel'
+	$f.Controls.Add($bo); $f.Controls.Add($bc); $f.CancelButton = $bc
+	$f.ClientSize = New-Object System.Drawing.Size($W, ($y + 52))
+	[void]$f.ShowDialog(); $f.Dispose()
 }
 function Open-Session([string]$local) { if ($local) { Start-Process ("claude://claude.ai/epitaxy/" + $local) } elseif (Test-Path $HtmlFile) { Start-Process $HtmlFile } } # CLI 使用者沒有桌面版連結：改開網頁清單
 function Reveal-Path([string]$p, [bool]$isDir) { # 在檔案總管裡找到它；檔案／資料夾已經不在了就開到還在的最近一層
@@ -730,7 +939,10 @@ $list.Add_RowActivated({
 	$row = $list.Items[$list.ActivatedIndex]
 	if (-not $row) { return }
 	switch ($script:tab) {
-		'pending' { Open-Session $row.Key }
+		'pending' {
+			$pit = @($script:items)[$list.ActivatedIndex]
+			if ($pit -and $pit.qid -and [double]$pit.qUntil -gt [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -and $pit.questions -and @($pit.questions).Count -gt 0 -and @($pit.questions[0].options).Count -ge 2) { Show-AnswerDialog $pit } elseif ($pit -and $pit.kind -eq 'wrapup' -and $pit.questions -and @($pit.questions).Count -gt 0 -and @($pit.questions[0].options).Count -ge 1) { Show-WrapDialog $pit } else { Open-Session $row.Key }
+		}
 		'broken' { # 把「請從中斷的地方接著做」放進剪貼簿，再打開那個對話；你只要貼上、按送出
 			if ([string]$row.Key -eq 'restart-all') { Restart-AllBroken; return }
 				$b = @($script:recent.broken)[$list.ActivatedIndex - 1]
@@ -738,7 +950,7 @@ $list.Add_RowActivated({
 			try { [System.Windows.Forms.Clipboard]::SetText($txt) } catch { }
 			Open-Session $row.Key
 		}
-		'running' { if ([string]$row.Key -like 'ses:*') { Open-Session ([string]$row.Key).Substring(4) } elseif ([string]$row.Key -like 'dir:*') { Reveal-Path ([string]$row.Key).Substring(4) $true } elseif ($row.Key) { Open-Session $row.Key } }
+		'running' { if ([string]$row.Key -eq 'pause-all') { Pause-All; return } elseif ([string]$row.Key -eq 'resume-all') { Resume-All; return } elseif ([string]$row.Key -like 'ses:*') { Open-Session ([string]$row.Key).Substring(4) } elseif ([string]$row.Key -like 'dir:*') { Reveal-Path ([string]$row.Key).Substring(4) $true } elseif ($row.Key) { Open-Session $row.Key } }
 			'sessions' { Open-Session $row.Key }
 		'projects' { Reveal-Path $row.Key $true }
 		'files' { Reveal-Path $row.Key $false }
@@ -898,6 +1110,25 @@ $m1 = $menu.Items.Add('設定…（所有設定都在這裡）'); $m1.Add_Click(
 $m5 = $menu.Items.Add('回報額度 %…（沒有自動數字時手動填）'); $m5.Add_Click({ Report-Usage })
 $m2 = $menu.Items.Add('開網頁清單'); $m2.Add_Click({ if (Test-Path $HtmlFile) { Start-Process $HtmlFile } })
 $m3 = $menu.Items.Add('開啟資料夾'); $m3.Add_Click({ Start-Process $DataDir })
+# 選項框出現在哪裡（Claude 原生框一定跳；這三個是開關，存在 config.json，改完下一個選項框起生效）
+$QModeJs = Join-Path $PSScriptRoot 'question-mode.mjs'
+function Get-QFlags { # → @{ phone; answerable; widget }；讀不到就用預設
+	$d = @{ phone = $true; answerable = $false; widget = $true }
+	if (-not $script:nodeOk) { return $d }
+	try { $o = (& node $QModeJs) | Out-String; $j = $o | ConvertFrom-Json; return @{ phone = [bool]$j.phone; answerable = [bool]$j.answerable; widget = [bool]$j.widget } } catch { return $d }
+}
+$script:qFlagsAt = 0; $script:qFlags = @{ phone = $true; answerable = $false; widget = $true }
+function Q-Flags { # 15 秒內不重讀（避免每 3 秒就叫起 node）
+	$n = [Environment]::TickCount
+	if ($n - $script:qFlagsAt -gt 15000 -or $n -lt $script:qFlagsAt) { $script:qFlags = Get-QFlags; $script:qFlagsAt = $n }
+	return $script:qFlags
+}
+function Set-QFlag([string]$which, [bool]$on) { if ($script:nodeOk) { try { [void](& node $QModeJs $which $(if ($on) { 'on' } else { 'off' })) } catch { } }; $script:qFlagsAt = 0 }
+$mq1 = New-Object System.Windows.Forms.ToolStripMenuItem '選項框也出現在手機'; $mq1.Add_Click({ $f = Get-QFlags; Set-QFlag 'phone' (-not $f.phone) })
+$mq2 = New-Object System.Windows.Forms.ToolStripMenuItem '選項框列在小工具「待決定」'; $mq2.Add_Click({ $f = Get-QFlags; Set-QFlag 'widget' (-not $f.widget) })
+$mq3 = New-Object System.Windows.Forms.ToolStripMenuItem '可答模式：手機／小工具可點選項（原生框會延後最多 60 秒）'; $mq3.Add_Click({ $f = Get-QFlags; Set-QFlag 'answerable' (-not $f.answerable) })
+[void]$menu.Items.Add('-'); [void]$menu.Items.AddRange(@($mq1, $mq2, $mq3))
+$menu.Add_Opening({ $f = Get-QFlags; $mq1.Checked = $f.phone; $mq2.Checked = $f.widget; $mq3.Checked = $f.answerable })
 [void]$menu.Items.Add('-')
 $mp = New-Object System.Windows.Forms.ToolStripMenuItem '電子雞（陪牠玩）'
 $mpi = @{}
@@ -1687,6 +1918,17 @@ function Run-UsagePoll { # 每 5 分鐘查一次每週用量（要先在終端�
 		$script:usageProc = [System.Diagnostics.Process]::Start($psi)
 	} catch { }
 }
+$AgentJs = Join-Path $PSScriptRoot 'pd-agent.mjs'
+$script:agentProc = $null
+function Run-Agent { # 手機鏡像＋遙控的常駐小程式（pd-agent.mjs）：自己用本機埠當鎖，只會有一個；已經在跑就馬上結束。每分鐘確認一次
+	if (-not $script:nodeOk -or $Snap) { return }
+	if ($script:agentProc -and -not $script:agentProc.HasExited) { return }
+	try {
+		$psi = New-Object System.Diagnostics.ProcessStartInfo
+		$psi.FileName = 'node'; $psi.Arguments = '"' + $AgentJs + '"'; $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+		$script:agentProc = [System.Diagnostics.Process]::Start($psi)
+	} catch { }
+}
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 3000
 $script:tick = 0
@@ -1697,7 +1939,7 @@ function Flush-Errors { # 事件裡出的錯不會跳視窗：每輪把累積的
 	try { $Error | Select-Object -First 3 | ForEach-Object { Add-Content -Path $ErrLog -Value ("{0} widget: {1} @ {2}" -f (Get-Date -Format s), $_.Exception.Message, $_.InvocationInfo.PositionMessage) -Encoding UTF8 } } catch { }
 	$Error.Clear()
 }
-$timer.Add_Tick({ $script:tick++; if ($script:tick % 2 -eq 0) { Run-Scan }; if ($script:tick % 100 -eq 2) { Run-UsagePoll }; Refresh-Data; Flush-Errors })
+$timer.Add_Tick({ $script:tick++; if ($script:tick % 2 -eq 0) { Run-Scan }; if ($script:tick % 100 -eq 2) { Run-UsagePoll }; if ($script:tick % 20 -eq 3) { Run-Agent }; Refresh-Data; Flush-Errors })
 
 # ---------- 截圖模式：把真正的視窗畫到圖上（不會在螢幕上跳出任何東西）----------
 function Snap-Ctl($c) { # 沒顯示的視窗畫不出子控制項：先放到螢幕外（-20000）、不搶焦點地 Show，畫完再藏起來
@@ -1737,6 +1979,7 @@ function Take-Snapshots {
 Apply-Icon
 if ($Snap) { New-Item -ItemType Directory -Force $env:PDW_SNAPSHOT | Out-Null; Run-Scan; if ($script:scanProc) { [void]$script:scanProc.WaitForExit(20000) }; Refresh-Data; Take-Snapshots; exit }
 Run-Scan
+Run-Agent
 Refresh-Data
 $timer.Start()
 $petTimer.Start()

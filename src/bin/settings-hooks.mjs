@@ -62,7 +62,7 @@ if (cmd === 'add') {
 	if (flags.includes('--replace-legacy')) { removed += strip(st.obj, LEGACY); }
 	st.obj.hooks = st.obj.hooks || {};
 	for (const [ev, matcher] of WANT) {
-		const group = { hooks: [{ type: 'command', command: 'node "' + logPath + '"', timeout: ev === 'PermissionRequest' ? 130 : 15 }] }; // 權限確認可能要等手機核准（ntfy.approve），所以給長一點；沒開那個功能時照樣馬上結束
+		const group = { hooks: [{ type: 'command', command: 'node "' + logPath + '"', timeout: ev === 'PermissionRequest' ? 130 : ev === 'PreToolUse' ? 100 : 15 }] }; // PreToolUse 要等手機選擇題（push.question=wait，最多 84 秒）； 權限確認可能要等手機核准（ntfy.approve），所以給長一點；沒開那個功能時照樣馬上結束
 		if (matcher) { group.matcher = matcher; }
 		(st.obj.hooks[ev] = st.obj.hooks[ev] || []).push(group);
 	}

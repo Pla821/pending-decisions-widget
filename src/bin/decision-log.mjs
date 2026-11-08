@@ -28,6 +28,11 @@ const FC = (() => {
 	if (!/^https:\/\//i.test(server) && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(server)) { return null; }
 	return { server, secret: p.secret, approve: p.approve === true, awaySeconds: (p.awaySeconds != null && Number.isFinite(Number(p.awaySeconds))) ? Math.max(0, Number(p.awaySeconds)) : 60, waitSeconds: Math.max(5, Math.min(100, Number(p.waitSeconds) || 100)), onlyWhenAway: p.onlyWhenAway !== false };
 })();
+// 選項框（AskUserQuestion）推手機：config.json 的 push.question = "wait"（預設，每題一律推手機並等你在手機選，逾時才在電腦跳對話框）
+//   | "notify"（只推提醒，電腦對話框照跳，電腦答了就撤掉手機卡片）| "off"／false（不推）。等多久：push.questionWaitSeconds（預設 60、最多 80）。
+//   不看人在不在電腦前：「手機固定推」。要改模式：node bin/question-mode.mjs wait|notify|off
+const QMODE = !FC ? 'off' : (CONFIG.push.question === false || CONFIG.push.question === 'off') ? 'off' : CONFIG.push.question === 'notify' ? 'notify' : CONFIG.push.question === 'sync' ? 'sync' : 'wait';
+const QWAIT = Math.max(5, Math.min(80, Number(FC && CONFIG.push.questionWaitSeconds) || 60));
 let idleMemo = null;
 const idleOnce = () => (idleMemo === null ? (idleMemo = idleSeconds()) : idleMemo);
 const fcAway = () => !!FC && (!FC.onlyWhenAway || idleOnce() >= FC.awaySeconds);
@@ -77,6 +82,28 @@ async function askFeichuan(title, tool, detail, name) {
 		return null;
 	} finally {
 		if (!answered) { await fcCall('POST', 'cancel', { id }, 4000).catch(() => {}); } // 沒人回（逾時）就把手機上的卡片撤掉；有回的留著顯示「已允許／已拒絕」，10 分鐘後自己消失
+	}
+}
+// 手機選擇題：推一則 question 項目（整組選項），分段長輪詢等你在手機選；回傳「每題一個答案字串」的陣列，沒回／逾時／任何錯誤回 null（電腦照常跳對話框）。
+async function askFeichuanQuestion(id, name, qs, onPushed) {
+	const deadline = Math.min(Date.now() + QWAIT * 1000, HOOK_T0 + 84000);
+	const body = { id, kind: 'question', title: ('【' + name + '】有選項框等你選').slice(0, 120), message: '', questions: qs.map((q) => ({ question: q.question, header: q.header, multiSelect: q.multiSelect === true, options: (q.options || []).map((o) => ({ label: o.label, description: o.description })) })) };
+	const p = await fcCall('POST', 'push', body, 30000).catch(() => null);
+	if (!p || !p.ok) { return null; }
+	try { onPushed && onPushed(deadline); } catch (e) { logError(e); } // 信箱收到了才讓小工具看得到 qid（免得伺服器冷啟動很慢時，小工具回覆打到還不存在的項目）
+	let answered = false;
+	try {
+		while (Date.now() < deadline) {
+			const secs = Math.max(1, Math.min(25, Math.ceil((deadline - Date.now()) / 1000)));
+			const w = await fcCall('GET', 'wait?id=' + id + '&timeout=' + secs, null, (secs + 8) * 1000).catch(() => null);
+			if (!w) { await new Promise((r) => setTimeout(r, 1500)); continue; }
+			if (!w.ok) { return null; }
+			if (w.j && w.j.verb === 'answered' && Array.isArray(w.j.answers) && w.j.answers.length === qs.length && w.j.answers.every((a) => typeof a === 'string' && a)) { answered = true; return w.j.answers; }
+			if (w.j && w.j.gone) { return null; }
+		}
+		return null;
+	} finally {
+		if (!answered) { await fcCall('POST', 'cancel', { id }, 4000).catch(() => {}); } // 逾時：撤掉手機卡片，改在電腦答
 	}
 }
 function phonePush(title, body) { // 選填：config.json 設 ntfy.topic 才會送；預設只送標題（不含對話名稱與指令細節），ntfy.detail=true 才附內文
@@ -139,6 +166,7 @@ function toast(title, body, noPhone) {
 const pendingCount = (st) => st.items.filter((i) => i.status === 'pending').length;
 
 let approveReq = null;
+let questionReq = null;
 try {
 	const inp = readStdin();
 	if (!inp) { process.exit(0); }
@@ -186,10 +214,31 @@ try {
 		if (ev === 'PreToolUse') {
 			const qs = ((inp.tool_input && inp.tool_input.questions) || []).map((q) => ({ question: q.question, options: (q.options || []).map((o) => o.label) }));
 			st.items = st.items.filter((i) => i.id !== id);
-			st.items.push({ id, sid: inp.session_id, local: s.local, title: s.title, cwd: inp.cwd || '', at: Date.now(), status: 'pending', questions: qs });
-			toast('有選項框等你回答（共 ' + pendingCount(st) + ' 件）', '【' + name + '】' + ((qs[0] && qs[0].question) || ''));
+			const item = { id, sid: inp.session_id, local: s.local, title: s.title, cwd: inp.cwd || '', at: Date.now(), status: 'pending', questions: qs };
+			st.items.push(item);
+			const rawQs = (inp.tool_input && inp.tool_input.questions) || [];
+			const okQs = Array.isArray(rawQs) && rawQs.length >= 1 && rawQs.length <= 4 && rawQs.every((q) => q && typeof q.question === 'string' && Array.isArray(q.options) && q.options.length >= 2);
+			if (QMODE === 'wait' && okQs) {
+				questionReq = { id: 'q-' + crypto.randomBytes(8).toString('hex'), name, qs: rawQs, input: inp.tool_input, itemId: id };
+				// 讓桌面小工具也能直接點選項：信箱收到後（onPushed）把信箱項目編號 qid 與「最晚等到幾點」qUntil 記進 pending.json；小工具用同一把密碼呼叫 /pd/api/reply，手機與小工具先點先贏（伺服器端一次性）。
+				questionReq.qmeta = rawQs.map((q) => ({ multi: q.multiSelect === true, header: String(q.header || '').slice(0, 40), descs: (q.options || []).map((o) => String(o.description || '').slice(0, 120)) }));
+			}
+			else if (QMODE === 'sync' && okQs) { // 三處同步：原生框照常立刻跳；同時推信箱（sync:true）讓手機／小工具有卡片，任一處答了由 pd-agent 在 Claude 視窗點同一個選項；電腦先答就在 PostToolUse 撤掉信箱項目
+					const qid = 'q-' + crypto.randomBytes(8).toString('hex');
+					item.sync = true;
+					const qmeta = rawQs.map((q) => ({ multi: q.multiSelect === true, header: String(q.header || '').slice(0, 40), descs: (q.options || []).map((o) => String(o.description || '').slice(0, 120)) }));
+					const body = { id: qid, kind: 'question', sync: true, title: ('【' + name + '】有選項框等你選').slice(0, 120), message: '', questions: rawQs.map((q) => ({ question: q.question, header: q.header, multiSelect: q.multiSelect === true, options: (q.options || []).map((o) => ({ label: o.label, description: o.description })) })) };
+					pushes.push(fcCall('POST', 'push', body, 8000).then((p) => { if (p && p.ok) { const s2 = loadState(); const it2 = s2.items.find((i) => i.id === id); if (it2 && it2.status === 'pending') { it2.qid = qid; it2.qUntil = p.expiresAt || (Date.now() + 3600000); it2.qmeta = qmeta; it2.sync = true; saveState(s2); } } }).catch((e) => logError(e)));
+				}
+				else if (QMODE === 'notify' && okQs) { // 只提醒：推一則 info（含第一題），電腦答了（PostToolUse）再撤掉
+				item.phoneId = 'qn-' + crypto.randomBytes(8).toString('hex');
+				pushes.push(fcCall('POST', 'push', { id: item.phoneId, kind: 'info', title: ('【' + name + '】有選項框等你回答').slice(0, 120), message: String(qs[0].question).slice(0, 300) }, 30000).catch((e) => logError(e)));
+			}
+			toast('有選項框等你回答（共 ' + pendingCount(st) + ' 件）', '【' + name + '】' + ((qs[0] && qs[0].question) || ''), QMODE !== 'off');
 		} else {
 			const it = st.items.find((i) => i.id === id) || st.items.filter((i) => i.sid === inp.session_id && i.status === 'pending' && i.kind !== 'permission').pop();
+			if (it && it.phoneId && FC) { pushes.push(fcCall('POST', 'cancel', { id: it.phoneId }, 8000).catch(() => {})); }
+				if (it && it.sync && it.qid && FC) { pushes.push(fcCall('POST', 'cancel', { id: it.qid }, 8000).catch(() => {})); } // 電腦原生框答完（或取消）→ 撤掉手機／小工具的同步卡片
 			if (it) {
 				it.status = ev === 'PostToolUse' ? 'answered' : 'cancelled';
 				if (ev === 'PostToolUse') {
@@ -204,6 +253,18 @@ try {
 	st.items = st.items.filter((i) => now - i.at < (i.status === 'pending' ? 14 * DAY : 3 * DAY));
 	saveState(st);
 	writeHtml(st);
+	if (questionReq) { // 手機選擇題：選了才替 Claude 回答（把答案放進 updatedInput.answers，電腦不再跳對話框）；沒選就不輸出
+		const ans = await askFeichuanQuestion(questionReq.id, questionReq.name, questionReq.qs, (deadline) => {
+			const s2 = loadState(); const it2 = s2.items.find((i) => i.id === questionReq.itemId);
+			if (it2) { it2.qid = questionReq.id; it2.qUntil = deadline; it2.qmeta = questionReq.qmeta; saveState(s2); }
+		}).catch((e) => { logError(e); return null; });
+		try { fs.appendFileSync(path.join(DATA, 'question-hook.log'), new Date().toISOString() + ' ' + questionReq.id + ' ' + (ans ? 'answered-on-phone' : 'no-phone-answer') + ' ' + Math.round((Date.now() - HOOK_T0) / 1000) + 's\n'); } catch { /* 診斷紀錄寫不了就算了 */ }
+		if (ans) {
+			const answers = {};
+			questionReq.qs.forEach((q, i) => { answers[q.question] = ans[i]; });
+			process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...questionReq.input, answers } } }));
+		}
+	}
 	if (approveReq) { // 人不在電腦前：等手機回；按了才替 Claude 回答，沒回就不輸出（電腦上照常跳出允許視窗）
 		const verb = await (approveReq.via === 'feichuan' ? askFeichuan : askPhone)(approveReq.title, approveReq.tool, approveReq.detail, approveReq.name).catch((e) => { logError(e); return null; });
 		if (verb) {
