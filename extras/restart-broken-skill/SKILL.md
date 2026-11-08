@@ -10,7 +10,7 @@ description: 把待決定小工具「中斷」分頁裡的所有對話一次叫�
 ## 步驟（照順序，不要跳）
 
 1. **用量守門**：先用 `get_usage`。任一額度窗 ≥90% → 不做，告訴使用者目前 %，停。（每個被叫醒的對話都要重讀整段對話，長對話很貴。）
-2. **讀名單**：讀 `C:\Users\Michael Yang\.claude\pending-decisions\data\recent.json` 的 `broken` 陣列（欄位：`title`、`local`＝桌面版對話 id、`cwd`、`stopped`＝停在哪、`said`＝它最後說的話、`at`）。檔案太舊（`at` 超過 10 分鐘前）就先請使用者等小工具重掃，或自己跑 `node "C:\Users\Michael Yang\.claude\pending-decisions\bin\decision-scan.mjs"` 再讀。
+2. **讀名單**：讀 `%USERPROFILE%\.claude\pending-decisions\data\recent.json` 的 `broken` 陣列（欄位：`title`、`local`＝桌面版對話 id、`cwd`、`stopped`＝停在哪、`said`＝它最後說的話、`at`）。檔案太舊（`at` 超過 10 分鐘前）就先請使用者等小工具重掃，或自己跑 `node "%USERPROFILE%\.claude\pending-decisions\bin\decision-scan.mjs"` 再讀。
 3. **過濾**：用 `list_sessions` 對照 `local`——
    - 已封存（archived）的跳過；
    - `isRunning` 的跳過（它沒中斷，只是還在跑）；
